@@ -1,7 +1,14 @@
-# NAIAD
+# NAIAD: Active learning for efficient discovery of optimal gene combinations in the combinatorial perturbation space
 
-NAIAD is a tool developed by Neptune Bio for modeling and predicting phenotypic outcomes of combinatorial genetic perturbations. We use an active learning framework that efficiently discovers optimal gene pairs that induced desired cellular phenotypes, leveraging knowledge from single-gene perturbation effects and learned gene embeddings. Evaluated on four CRISPR combinatorial perturbation datasets totaling over 350,000 genetic interactions, NAIAD, trained on a small dataset, outperforms existing models by up to 40% relative to the second-best.
+ NAIAD is a novel active learning framework from Neptune Bio designed to model phenotypic outcomes of combinatorial genetic perturbations and guide experimental design. It focuses on two key goals:
+ 1. **Small sample learning**  
+   Achieve high prediction performance with limited initial experimental data.
 
-Installation:
+ 2. **Efficient recommendation system for experiments**  
+   Recommend gene pairs that maximize information gain, accelerating convergence with fewer AI + experimental iterations.
+
+By optimizing experimental resources, NAIAD reduces the need for exhaustive testing and efficiently identifies gene combinations that drive desired cellular phenotypes.
+
+### Installation 
 - Set up a development environment with python>=3.8
 - Clone GitHub repo locally and install NAIAD with `pip install -e .`
