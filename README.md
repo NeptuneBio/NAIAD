@@ -1,7 +1,7 @@
 # NAIAD: Active learning for efficient discovery of optimal gene combinations in the combinatorial perturbation space
 
  NAIAD is a novel active learning framework from Neptune Bio designed to model phenotypic outcomes of combinatorial genetic perturbations and guide experimental design. It focuses on two key goals:
- 1. **Small sample learning**  
+ 1. **Small sample learning as an important initial step for active learning**  
    Achieve high prediction performance with limited initial experimental data.
 
  2. **Efficient recommendation system for experiments**  
