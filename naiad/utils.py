@@ -7,7 +7,7 @@ import seaborn as sns
 
 import torch
 
-def load_naiad_data(data_path):
+def load_naiad_data(data_path, control_gene_name='negative'):
     """
     Generate a Pandas DataFrame from a bulk perturbation screen dataset. Resulting
     data frame will list each combination of genes tested in the combinatorial screen, and
@@ -35,7 +35,7 @@ def load_naiad_data(data_path):
             This is done to match the default format of PyTorch parameters.
     """
     phenotype_df = load_phenotype_df(data_path)
-    naiad_data = reorganize_single_gene_effects(phenotype_df)
+    naiad_data = reorganize_single_gene_effects(phenotype_df, control_gene_name=control_gene_name)
     return naiad_data
 
 def load_phenotype_df(data_path):
@@ -68,6 +68,7 @@ def load_phenotype_df(data_path):
     gene_cols = [col for col in comb_data.columns if 'gene' in col]
     all_cols = gene_cols + ['score']
     gene_names = comb_data[gene_cols]
+    # sort gene names in each row
     gene_names = gene_names.apply(lambda row: pd.Series(sorted(row)), axis=1)
     comb_data.loc[:, gene_cols] = gene_names.values
     comb_data = comb_data[all_cols]
@@ -79,7 +80,7 @@ def load_phenotype_df(data_path):
 
     return comb_data
 
-def reorganize_single_gene_effects(comb_data):
+def reorganize_single_gene_effects(comb_data, control_gene_name='negative'):
     """
     Filter unprocessed data frame of combinatorial phenotype assay data. 
     Perform the following opertions:
@@ -101,9 +102,9 @@ def reorganize_single_gene_effects(comb_data):
     """
     gene_col_names = [x for x in comb_data.columns if 'gene' in x]
     gene_cols = comb_data[gene_col_names]
-    single_gene_row_filter = (gene_cols != 'negative').sum(axis=1) == 1
+    single_gene_row_filter = (gene_cols !=  control_gene_name).sum(axis=1) == 1
     single_gene_rows = gene_cols[single_gene_row_filter]
-    single_genes = single_gene_rows[single_gene_rows != 'negative'].values.flatten()
+    single_genes = single_gene_rows[single_gene_rows != control_gene_name].values.flatten()
     single_genes = [x for x in single_genes if isinstance(x, str)]
     single_gene_scores = comb_data.loc[single_gene_row_filter, 'score'].values
 
@@ -114,9 +115,9 @@ def reorganize_single_gene_effects(comb_data):
     comb_data = comb_data[~single_gene_row_filter]
     
     # append negative guide score
-    all_neg_row_filter = (comb_data == 'negative').sum(axis=1) == len(gene_col_names)
+    all_neg_row_filter = (comb_data == control_gene_name).sum(axis=1) == len(gene_col_names)
     neg_score = comb_data.loc[all_neg_row_filter, 'score'].values
-    neg_data = pd.DataFrame({'gene': 'negative', 'score': neg_score})
+    neg_data = pd.DataFrame({'gene': control_gene_name, 'score': neg_score})
     comb_data_single = pd.concat([comb_data_single, neg_data], ignore_index=True)
 
     # filter rows of exclusively non-targeting
