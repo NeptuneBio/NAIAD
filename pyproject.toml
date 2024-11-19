@@ -9,6 +9,7 @@ requires-python = '>=3.8'
 dependencies = [
     'matplotlib',
     'scikit-learn',
+    'openpyxl',
     'pandas',
     'seaborn',
     'torch'
