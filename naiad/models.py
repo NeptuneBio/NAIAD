@@ -1,17 +1,16 @@
-import os
-
-import numpy as np
+import copy
 
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
     
 class EmbedPhenoDataset(Dataset):
-    def __init__(self, data, genes, n_gene_per_pert=2, pheno_shuffle=True):
+    def __init__(self, data, genes, control_gene='negative', n_gene_per_pert=2, pheno_shuffle=True):
         super().__init__()
         self.data = data
 
         self.genes = genes
+        self.control_gene = control_gene
         self.gene_to_idx = {g: i for i, g in enumerate(self.genes)}
         self.idx_to_gene = {i: g for i, g in enumerate(self.genes)}
 
@@ -53,9 +52,7 @@ class MLPEmbedPheno(nn.Module):
                  p_dropout = 0.1, 
                  model_type = 'both', 
                  train_embed = True, 
-                 n_gene_per_pert = 2,
-                 bilinear_comb = False, 
-                 var_pred = False):
+                 n_gene_per_pert = 2):
         super().__init__()
         
         self.n_genes = n_genes
@@ -67,126 +64,158 @@ class MLPEmbedPheno(nn.Module):
         self.d_pheno_hid = d_pheno_hid
         self.model_type = model_type.lower()
         self.n_gene_per_pert = n_gene_per_pert
-        self.bilinear_comb = bilinear_comb
-        self.var_pred = var_pred
 
         if self.model_type not in ['pheno', 'embed', 'both']:
             raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')
-
-        if self.model_type in ['embed', 'both']:
-            self.embedding = nn.Embedding(self.n_genes, self.d_embed)
-            self.embedding.weight.requires_grad = train_embed
-
-            self.embedding_ffn = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
-                                               nn.Dropout(self.p_dropout),
-                                               nn.ReLU(),
-                                               nn.Linear(self.d_embed, self.d_embed))
             
-            if self.bilinear_comb:
-                self.bilinear_weights = nn.Parameter(
-                    1 / 100 * torch.randn((self.d_embed, self.d_embed, self.d_embed))
-                    + torch.cat([torch.eye(self.d_embed)[None, :, :]] * self.d_embed, dim=0)
-                )
-                self.bilinear_offsets = nn.Parameter(1 / 100 * torch.randn((self.d_embed)))
+        self.embedding = nn.Embedding(self.n_genes, self.d_embed)
+        self.embedding.weight.requires_grad = train_embed
 
-                self.allow_neg_eigval = False
-                if self.allow_neg_eigval:
-                    self.bilinear_diag = nn.Parameter(1 / 100 * torch.randn((self.d_embed, self.d_embed)) + 1)
-
-            self.embedding_comb = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
+        self.embedding_ffn = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
+                                            nn.Dropout(self.p_dropout),
+                                            nn.ReLU(),
+                                            nn.Linear(self.d_embed, self.d_embed))
+        
+        self.embedding_comb = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
                                                 nn.Dropout(self.p_dropout),
                                                 nn.ReLU(),
                                                 nn.Linear(self.d_embed, 1))
+            
+        self.pheno_ffn = nn.Sequential(nn.Linear(self.n_gene_per_pert, d_pheno_hid, bias=False),
+                                        nn.Dropout(self.p_dropout),
+                                        nn.GELU(),
+                                        nn.Linear(self.d_pheno_hid, self.d_pheno_hid, bias=False),
+                                        nn.Dropout(self.p_dropout),
+                                        nn.GELU(),
+                                        nn.Linear(self.d_pheno_hid, 1))
 
-        if self.model_type in ['pheno', 'both']:
-            self.pheno_ffn = nn.Sequential(nn.Linear(self.n_gene_per_pert, d_pheno_hid, bias=False),
-                                           nn.Dropout(self.p_dropout),
-                                           nn.GELU(),
-                                           nn.Linear(self.d_pheno_hid, self.d_pheno_hid, bias=False),
-                                           nn.Dropout(self.p_dropout),
-                                           nn.GELU(),
-                                           nn.Linear(self.d_pheno_hid, 1))
-
-        if self.var_pred:
-            if self.model_type in ['embed', 'both']:
-                self.embed_var_ffn = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
-                                                   nn.Dropout(self.p_dropout),
-                                                   nn.ReLU(),
-                                                   nn.Linear(self.d_embed, self.d_embed))
-                
-                self.embed_var_comb = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
-                                                    nn.Dropout(self.p_dropout),
-                                                    nn.ReLU(),
-                                                    nn.Linear(self.d_embed, 1))
-                
-            if self.model_type in ['pheno', 'both']:
-                self.pheno_var_ffn = nn.Sequential(nn.Linear(self.n_gene_per_pert, self.d_pheno_hid, bias=False),
-                                                   nn.Dropout(self.p_dropout),
-                                                   nn.ReLU(),
-                                                   nn.Linear(self.d_pheno_hid, 1))
-                
+    def forward_embed(self, x):
+        x = self.embedding(x)            
+        x = x.reshape(x.shape[0]*self.n_gene_per_pert, x.shape[2])
+        x = self.embedding_ffn(x)
+        x = x.reshape(-1, self.n_gene_per_pert, x.shape[1])
+        x = torch.sum(x, axis=1)
+        x = self.embedding_comb(x)
+        return x
 
     def forward(self, x, phenos=None, return_intermediate=False):
-        input = x.clone()
-        if self.model_type in ['embed', 'both']:
-            x = self.embedding(x)
-            
-            x = x.reshape(x.shape[0]*self.n_gene_per_pert, x.shape[2])
-            x = self.embedding_ffn(x)
-            x = x.reshape(-1, self.n_gene_per_pert, x.shape[1])
-
-            if self.bilinear_comb:
-                x0 = self.bilinear_weights.matmul(x[:, 0, :].T).T # TODO: Check these dimensions
-                x1 = self.bilinear_weights.matmul(x[:, 1, :].T).T
-
-                if self.allow_neg_eigval:
-                    x1 *= self.bilinear_diag
-
-                x1 = x1.permute(0, 2, 1)
-                x = (x0 * x1).sum(1)
-                
-                x += self.bilinear_offsets
-            else:
-                x = torch.sum(x, axis=1)
-            
-            x = self.embedding_comb(x)
-
-            if self.var_pred:
-                v = self.embedding(input)
-                v = self.embed_var_ffn(v)
-                v = v.reshape(v.shape[0]*2, v.shape[2])
-                v = self.embedding_ffn(v)
-
-                v = v.reshape(-1, 2, v.shape[1])
-                v = torch.sum(v, axis=1)
-                v = self.embedding_comb(v)
-
-            if self.model_type == 'embed':
-                if self.var_pred:
-                    return x.squeeze(), v.squeeze()
-                return x.squeeze()
-        
-        phenos_input = phenos.clone()
-        phenos = self.pheno_ffn(phenos)
-        if self.var_pred:
-            phenos_var = self.pheno_var_ffn(phenos_input)
         if self.model_type == 'pheno':
-            if self.var_pred:
-                return phenos.squeeze(), torch.abs(phenos_var.squeeze())
+            phenos = self.pheno_ffn(phenos)
             return phenos.squeeze()
+
+        if self.model_type == 'embed':
+            x = self.forward_embed(x)
+            return x.squeeze()
+
         elif self.model_type == 'both':
+            x = self.forward_embed(x)
+            phenos = self.pheno_ffn(phenos)
             out_x = x + phenos
-            if self.var_pred:
-                out_v = v + phenos_var 
-                if return_intermediate:
-                    return out_x.squeeze(), x[: 0].squeeze(), x[: 1].squeeze(), \
-                        torch.abs(out_v.squeeze()), torch.abs(v[: 0].squeeze()), torch.abs(v[: 1].squeeze())
-                return out_x.squeeze(), torch.abs(out_v.squeeze())
             if return_intermediate:
                 return out_x.squeeze(), x[:, 0].squeeze(), x[:, 1].squeeze()
             return out_x.squeeze()
-        
+                
         return None
+
+class BilinearMLPEmbedPheno(MLPEmbedPheno):
+    def __init__(self, n_genes, 
+                 d_embed = 16, 
+                 d_pheno_hid = 512, 
+                 d_out = 1, 
+                 p_dropout = 0.1, 
+                 model_type = 'both', 
+                 train_embed = True, 
+                 n_gene_per_pert = 2):
+        super().__init__(n_genes,
+                         d_embed,
+                         d_pheno_hid,
+                         d_out,
+                         p_dropout,
+                         model_type,
+                         train_embed,
+                         n_gene_per_pert)
+                
+        self.bilinear_weights = nn.Parameter(
+            1 / 100 * torch.randn((self.d_embed, self.d_embed, self.d_embed))
+            + torch.cat([torch.eye(self.d_embed)[None, :, :]] * self.d_embed, dim=0)
+        )
+        self.bilinear_offsets = nn.Parameter(1 / 100 * torch.randn((self.d_embed)))
+
+        self.allow_neg_eigval = False
+        if self.allow_neg_eigval:
+            self.bilinear_diag = nn.Parameter(1 / 100 * torch.randn((self.d_embed, self.d_embed)) + 1)
+
+    def forward_embed(self, x):
+        x = self.embedding(x)
+
+        x = x.reshape(x.shape[0]*self.n_gene_per_pert, x.shape[2])
+        x = self.embedding_ffn(x)
+        x = x.reshape(-1, self.n_gene_per_pert, x.shape[1])
+
+        x0 = self.bilinear_weights.matmul(x[:, 0, :].T).T # TODO: Check these dimensions
+        x1 = self.bilinear_weights.matmul(x[:, 1, :].T).T
+
+        if self.allow_neg_eigval:
+            x1 *= self.bilinear_diag
+
+        x1 = x1.permute(0, 2, 1)
+        x = (x0 * x1).sum(1)
+        
+        x += self.bilinear_offsets
+        x = self.embedding_comb(x)
+
+        return x
+
+class VarModel(nn.Module):
+    def __init__(self, base_model):
+        super().__init__()
+        self.pred_model = base_model
+        self.var_model = copy.deepcopy(base_model) 
+        
+    def forward(self, x, phenos=None, return_intermediate=False):
+        preds = self.pred_model(x, phenos, return_intermediate)
+        var = self.var_model(x, phenos, return_intermediate)
+        return tuple(*preds, *var)
+        
+def model_loader(n_genes, 
+                 d_embed = 16, 
+                 d_pheno_hid = 512, 
+                 d_out = 1, 
+                 p_dropout = 0.1, 
+                 model_type = 'both', 
+                 train_embed = True, 
+                 n_gene_per_pert = 2,
+                 bilinear_comb = False, 
+                 var_pred = False):
+
+    model_type = model_type.lower()
+    
+    if model_type not in ['pheno', 'embed', 'both']:
+        raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')
+    
+    if not bilinear_comb:
+        model = MLPEmbedPheno(n_genes,
+                              d_embed,
+                              d_pheno_hid,
+                              d_out,
+                              p_dropout,
+                              model_type,
+                              train_embed,
+                              n_gene_per_pert)
+    else:
+        model = BilinearMLPEmbedPheno(n_genes,
+                                        d_embed,
+                                        d_pheno_hid,
+                                        d_out,
+                                        p_dropout,
+                                        model_type,
+                                        train_embed,
+                                        n_gene_per_pert)
+
+    if var_pred:
+        model = VarModel(model)
+
+    return model
     
 class RecoverModel(nn.Module):
     def __init__(self, n_genes, 

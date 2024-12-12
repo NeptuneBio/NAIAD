@@ -550,35 +550,35 @@ class ActiveLearner:
                     data = split_data[split]
                     mse = np.sum((data['mean'] - data['comb_score'])**2) / data.shape[0]
                     if split == 'overall':
-                        roc = find_top_n_perturbations(df = data, 
+                        tpr = find_top_n_perturbations(df = data, 
                                                        pred_keys = 'measured+pred', 
                                                        pheno_key = 'comb_score', 
                                                        min = 10, max = 200, by = 5, 
                                                        ascending = True,
                                                        plot = False)
-                        roc = roc.rename(columns={'measured+pred': 'tpr'})
+                        tpr = tpr.rename(columns={'measured+pred': 'tpr'})
                     else:
-                        roc = find_top_n_perturbations(df = data, 
+                        tpr = find_top_n_perturbations(df = data, 
                                                        pred_keys = 'mean', 
                                                        pheno_key = 'comb_score', 
                                                        min = 10, max = 200, by = 5, 
                                                        ascending = True,
                                                        plot = False)
-                        roc = roc.rename(columns={'mean': 'tpr'})
-                    split_metrics = {'mse': mse, 'roc': roc}
+                        tpr = tpr.rename(columns={'mean': 'tpr'})
+                    split_metrics = {'mse': mse, 'tpr': tpr}
                     sampling_metrics[split] = split_metrics
                 
                 """
                 # find mse and tpr for overall data set
                 split_data_join = pd.concat([split_data[split] for split in split_data], axis=0)
                 mse = np.sum((data['mean'] - data['comb_score'])**2) / data.shape[0]
-                roc = find_top_n_perturbations(df = split_data_join, 
+                tpr = find_top_n_perturbations(df = split_data_join, 
                                                pred_keys = 'mean',
                                                pheno_key = 'comb_score', 
                                                min = 10, max = 200, by = 5, 
                                                ascending = True,
                                                plot = False)
-                sampling_metrics['overall'] = {'mse': mse, 'roc': roc}
+                sampling_metrics['overall'] = {'mse': mse, 'tpr': tpr}
                 """
                 round_metrics[sampling_type] = sampling_metrics
             aggregate_metrics[round] = round_metrics
@@ -735,7 +735,7 @@ class ActiveLearnerReplicates:
         for splits of interest.
 
         Args:
-            # metrics (str or list(str)): metrics to collect, e.g. mean square error and receiver operating characteristic. Default: ['mse', 'roc']
+            # metrics (str or list(str)): metrics to collect, e.g. mean square error and true positive rate. Default: ['mse', 'tpr']
             # splits (str or list(str)): data splits to collect metrics for. Default: ['val', 'test']
             return_value (bool): should the data aggregated by returned?
 
@@ -768,7 +768,7 @@ class ActiveLearnerReplicates:
             raise RuntimeError(f'Results for method "{self.method}" have already been aggregated.')
         
         sampling_types = ['random', 'active']
-        metrics = ['mse', 'roc']
+        metrics = ['mse', 'tpr']
         splits = ['train', 'val', 'test', 'overall']
         aggregate_metrics = {}
         for metric in metrics:
@@ -785,19 +785,19 @@ class ActiveLearnerReplicates:
                                 round_result = sampling_data[sampling_type][split][metric]
                             else: # fill Round 0 active learning results with NAs in shape of desired result
                                 round_result = sampling_data[list(sampling_data.keys())[0]][split][metric]
-                                if metric == 'roc':
+                                if metric == 'tpr':
                                     round_result.loc[:, 'tpr'] = np.nan
                                 else:
                                     round_result = np.nan
 
-                            if metric == 'roc':
+                            if metric == 'tpr':
                                 round_result.rename(columns={'tpr': seed}, inplace=True)
 
                             # first, keep results as dictionary
                             round_results[seed] = round_result 
                         
-                        # next, convert dictionary of results into data frame (concat by column if 'roc', stack by row if anything else, e.g. 'mse')
-                        if metric == 'roc':
+                        # next, convert dictionary of results into data frame (concat by column if 'tpr', stack by row if anything else, e.g. 'mse')
+                        if metric == 'tpr':
                             round_results = pd.concat(round_results.values(), axis=1)
                             round_results = round_results.loc[:, ~round_results.columns.duplicated()]
                         else:
@@ -864,20 +864,20 @@ class ActiveLearnerReplicates:
 
         return None
 
-    def plot_aggregated_results(self, metrics, splits, methods, return_value=False, max_round=None, orientation = 'vertical', max_roc=None, label_map=None):
+    def plot_aggregated_results(self, metrics, splits, methods, return_value=False, max_round=None, orientation = 'vertical', max_tpr=None, label_map=None):
         """
         Generate plots for requested `metrics` from data trained using `methods` in each of the requested data 
         `splits` collected across replicates.
 
         Args:
-            metrics (str or list(str)): which metrics should be plotted? Options are 'mse', 'roc'
+            metrics (str or list(str)): which metrics should be plotted? Options are 'mse', 'tpr'
             splits (str or list(str)): which splits should be plotted? Options are 'train', 'val', 'test', 'overall'
             methods (str or list(str)): which methods should be plotted? Options are 'mean', 'std', 'mean+std', 
                 'residual', 'residual+std', 'leverage'
             return_value (bool): should plots generated be returned?
             max_round (int, optional): maximum round to plot results up to
-            orientation (str, optional): which way should ROC plots be oriented? Default: 'vertical'. Options are ['vertical', 'horizontal']
-            max_roc (int, optional): should there be a x-axis threshold for the ROC plots?
+            orientation (str, optional): which way should TPR plots be oriented? Default: 'vertical'. Options are ['vertical', 'horizontal']
+            max_tpr (int, optional): should there be a x-axis threshold for the TPR plots?
             label_map (dict, optional): dictionary for mapping method labels to other (e.g. human-readable) text
         """
 
@@ -892,8 +892,8 @@ class ActiveLearnerReplicates:
 
         figs = []
 
-        if max_roc is not None and 'roc' not in metrics:
-            raise ValueError('Cannot specify `max_roc` if "roc" is not one of the `metrics` to plot')
+        if max_tpr is not None and 'tpr' not in metrics:
+            raise ValueError('Cannot specify `max_tpr` if "tpr" is not one of the `metrics` to plot')
 
         if orientation not in ['vertical', 'horizontal']:
             raise ValueError('`orientation` must be either in ["vertical", "horizontal"]')
@@ -942,14 +942,14 @@ class ActiveLearnerReplicates:
                                 text.set_text(label_map[old_label])
                     if not return_value:
                         plt.show()
-                elif metric == 'roc':
+                elif metric == 'tpr':
                     min_ylim = np.inf
                     max_ylim = -np.inf
                     data = copy.deepcopy(self.aggregated_metrics_across_seeds[metric][split])
                     data = data.loc[data['Round'] < n_round, :]
-                    if max_roc:
-                        data = data.loc[data['n_preds'] <= max_roc, :]
-                    data_stacked = pd.melt(data, id_vars=['Round', 'n_preds', 'Method', 'Sampling'], value_vars=self.seeds, var_name='seed', value_name='roc')
+                    if max_tpr:
+                        data = data.loc[data['n_preds'] <= max_tpr, :]
+                    data_stacked = pd.melt(data, id_vars=['Round', 'n_preds', 'Method', 'Sampling'], value_vars=self.seeds, var_name='seed', value_name='tpr')
 
                     if orientation == 'vertical':
                         fig, axs = plt.subplots(n_round, 1, figsize=(3, (n_round*2.25)+2))
@@ -959,7 +959,7 @@ class ActiveLearnerReplicates:
                     for idx in range(n_round):
                         # random data should be the same regardless of method, so choose random data from last method to plot
                         data_plot = data_stacked[(data_stacked['Round'] == idx) & (data_stacked['Method'] == methods[0]) & (data_stacked['Sampling'] == 'random')]
-                        sns.lineplot(data_plot, x='n_preds', y='roc', errorbar='se', label='random', color=method_colors['random'], ax=axs[idx])
+                        sns.lineplot(data_plot, x='n_preds', y='tpr', errorbar='se', label='random', color=method_colors['random'], ax=axs[idx])
                         
                         if idx > 0:
                             for method in methods:
@@ -968,7 +968,7 @@ class ActiveLearnerReplicates:
                                     data_plot[[(data_stacked['Round'] == idx) & (data_stacked['Method'] == method) & (data_stacked['Sampling'] == 'active')]] \
                                         = data_plot[[(data_stacked['Round'] == idx) & (data_stacked['Method'] == method) & (data_stacked['Sampling'] == 'active')]]
                                 data_plot = data_stacked[(data_stacked['Round'] == idx) & (data_stacked['Method'] == method) & (data_stacked['Sampling'] == 'active')]
-                                sns.lineplot(data_plot, x='n_preds', y='roc', errorbar='se', label=method, color=method_colors[method], ax=axs[idx])
+                                sns.lineplot(data_plot, x='n_preds', y='tpr', errorbar='se', label=method, color=method_colors[method], ax=axs[idx])
 
                         ylims = axs[idx].get_ylim()
                         if ylims[0] < min_ylim:
@@ -994,7 +994,8 @@ class ActiveLearnerReplicates:
                         
                     for ax in axs:
                         ax.set_ylim(min_ylim, max_ylim)
-                        ax.set_xticks([(i+1)*int(max_roc/4) for i in range(4)])
+                        if max_tpr is not None:
+                            ax.set_xticks([(i+1)*int(max_tpr/4) for i in range(4)])
 
                     axs[-1].legend(fontsize=9, frameon=False)
                     if label_map:

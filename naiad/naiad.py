@@ -14,7 +14,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from .utils import split_data, create_lr_scheduler
-from .models import EmbedPhenoDataset, MLPEmbedPheno
+from .models import EmbedPhenoDataset, model_loader
 
 logger = logging.getLogger(__name__)
 pd.set_option("mode.copy_on_write", True)
@@ -164,7 +164,13 @@ class NAIAD:
         self.device = device
 
         if model_args is None:
-            self.model_args = {'model_type': 'both', 'p_dropout': 0.1}
+            self.model_args = {}
+
+        if 'model_type' not in self.model_args:
+            self.model_args['model_type'] = 'both'
+            
+        if 'p_dropout' not in self.model_args:
+            self.model_args['p_dropout'] = 0.1
 
         if 'd_embed' not in self.model_args:
             logger.info('`d_embed` is not set for model, so assigning a value based on training dataset size and number of genes in dataset')
@@ -178,7 +184,10 @@ class NAIAD:
             logger.info('`d_pheno_hid` is not set for model, so using default value of `256`')
             self.model_args['d_pheno_hid'] = 256
 
-        self.model = MLPEmbedPheno(len(self.genes), **self.model_args).to(self.device) 
+        if 'var_pred' in self.model_args:
+            raise ValueError('var_pred is not currently supported by NAIAD')
+        
+        self.model = model_loader(len(self.genes), **self.model_args).to(self.device)
 
     def setup_trainer(self, n_epoch, model_optimizer_settings=None, loss_fn=nn.MSELoss(reduction='sum')):
         """
