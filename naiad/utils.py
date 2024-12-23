@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+import random
 import torch
 
-def load_naiad_data(data_path, control_gene_name='negative'):
+def load_naiad_data(data_path, control_gene_name='negative', shuffle_gene=True):
     """
     Generate a Pandas DataFrame from a bulk perturbation screen dataset. Resulting
     data frame will list each combination of genes tested in the combinatorial screen, and
@@ -36,8 +36,26 @@ def load_naiad_data(data_path, control_gene_name='negative'):
     """
     phenotype_df = load_phenotype_df(data_path)
     naiad_data = reorganize_single_gene_effects(phenotype_df, control_gene_name=control_gene_name)
+    if shuffle_gene:
+        naiad_data = naiad_data.apply(shuffle_genes, axis=1)
     return naiad_data
 
+def shuffle_genes(row):
+    # Identify gene name and score columns
+    gene_cols = [col for col in row.index if col.startswith('gene')]
+    score_cols = [f"{col}_score" for col in gene_cols]
+    score_cols = [s.replace('gene', 'g') for s in score_cols]
+    
+    genes_and_scores = list(zip(row[gene_cols], row[score_cols]))
+    
+    # shuffle the genes and scores together
+    random.shuffle(genes_and_scores)
+    for i, (gene, score) in enumerate(genes_and_scores):
+        row[gene_cols[i]] = gene
+        row[score_cols[i]] = score
+    
+    return row
+    
 def load_phenotype_df(data_path):
     """
     Create a Pandas DataFrame for a bulk perturbation experiment of interest. 
