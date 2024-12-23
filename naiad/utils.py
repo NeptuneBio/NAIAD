@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import random
 import torch
+import importlib
+import sys
+
 
 def load_naiad_data(data_path, control_gene_name='negative', shuffle_gene=True):
     """
@@ -37,24 +40,38 @@ def load_naiad_data(data_path, control_gene_name='negative', shuffle_gene=True):
     phenotype_df = load_phenotype_df(data_path)
     naiad_data = reorganize_single_gene_effects(phenotype_df, control_gene_name=control_gene_name)
     if shuffle_gene:
-        naiad_data = naiad_data.apply(shuffle_genes, axis=1)
+        naiad_data = shuffle_genes(naiad_data)
     return naiad_data
 
-def shuffle_genes(row):
-    # Identify gene name and score columns
-    gene_cols = [col for col in row.index if col.startswith('gene')]
-    score_cols = [f"{col}_score" for col in gene_cols]
-    score_cols = [s.replace('gene', 'g') for s in score_cols]
-    
-    genes_and_scores = list(zip(row[gene_cols], row[score_cols]))
-    
-    # shuffle the genes and scores together
-    random.shuffle(genes_and_scores)
-    for i, (gene, score) in enumerate(genes_and_scores):
-        row[gene_cols[i]] = gene
-        row[score_cols[i]] = score
-    
-    return row
+def shuffle_genes(data, gene_prefix='gene', score_suffix='_score'):
+    """
+    Shuffle gene and corresponding score columns for each row in a DataFrame.
+
+    Parameters:
+        data (pd.DataFrame): Input DataFrame containing gene and score columns.
+        gene_prefix (str): Prefix for gene columns (default is 'gene').
+        score_suffix (str): Suffix for score columns corresponding to gene columns.
+
+    Returns:
+        pd.DataFrame: DataFrame with shuffled gene and score columns.
+    """
+    # Identify gene and score columns
+    gene_cols = [col for col in data.columns if col.startswith(gene_prefix)]
+    score_cols = [col.replace(gene_prefix, 'g') + score_suffix for col in gene_cols]
+    genes_array = data[gene_cols].values
+    scores_array = data[score_cols].values
+
+    # Generate shuffled indices for each row
+    shuffled_indices = np.array([np.random.permutation(len(gene_cols)) for _ in range(len(data))])
+
+
+    # Shuffle the arrays using the generated indices
+    shuffled_genes = np.take_along_axis(genes_array, shuffled_indices, axis=1)
+    shuffled_scores = np.take_along_axis(scores_array, shuffled_indices, axis=1)
+    data[gene_cols] = shuffled_genes
+    data[score_cols] = shuffled_scores
+
+    return data
     
 def load_phenotype_df(data_path):
     """
@@ -277,3 +294,19 @@ def find_top_n_perturbations(df, pred_keys, pheno_key, min=10, max=200, by=10, a
         return roc_matches, ax
     else:
         return roc_matches
+    
+
+
+def reload_module(module_name):
+    try:
+        if module_name in sys.modules:
+            importlib.reload(sys.modules[module_name])
+            print('reloading module', module_name )
+        else:
+
+            importlib.import_module(module_name)
+            print('loading module', module_name )
+    except ModuleNotFoundError:
+        print(f"Module {module_name} not found.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
