@@ -34,6 +34,22 @@ class NAIAD:
         batch_size (int): size of batch to use for model training
         seed (float): default 0. Seed to use for random sampling and parameter initialization
             in numpy and torch
+        
+        Data spliting examples:
+        Example 1: Using absolute counts
+            n_train = 2000
+            n_val = 1000
+            n_test = 1000
+
+        Example 2: Using fractions of the dataset
+            n_train = 0.5
+            n_val = 0.2
+            n_test = 0.3
+
+        Example 3: Combining absolute counts with fractions
+            n_train = 0.5
+            n_val = 0.1
+            n_test = 1000
     """
     
     # map number of times each gene is seen to embedding size for model

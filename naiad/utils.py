@@ -8,6 +8,7 @@ import random
 import torch
 import importlib
 import sys
+import tqdm
 
 
 def load_naiad_data(data_path, control_gene_name='negative', shuffle_gene=True):
@@ -295,6 +296,22 @@ def find_top_n_perturbations(df, pred_keys, pheno_key, min=10, max=200, by=10, a
     else:
         return roc_matches
     
+
+
+def EnsembleModels(model, n_ensemble, model_args=None ,device=None, n_epoch=100, seed=1442):
+    ensemble_models = [] 
+    ensmble_loss = []
+    for i in tqdm.tqdm(range(n_ensemble)):
+        model.set_seed(seed=seed + i)
+        model.prepare_data()
+        model.initialize_model(device=device, model_args=model_args)
+        model.setup_trainer(n_epoch=n_epoch)
+        model.train_model()
+        losses = model.training_metrics  
+        ensmble_loss.append(losses)
+        ensemble_models.append(model)
+
+    return ensemble_models, ensmble_loss
 
 
 def reload_module(module_name):

@@ -1,5 +1,5 @@
 import copy
-
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
@@ -51,6 +51,7 @@ class MLPEmbedPheno(nn.Module):
                  d_out = 1, 
                  p_dropout = 0.1, 
                  model_type = 'both', 
+                 embed_model = 'MLP',
                  train_embed = True, 
                  n_gene_per_pert = 2):
         super().__init__()
@@ -64,17 +65,28 @@ class MLPEmbedPheno(nn.Module):
         self.d_pheno_hid = d_pheno_hid
         self.model_type = model_type.lower()
         self.n_gene_per_pert = n_gene_per_pert
+        self.embed_model = embed_model
 
         if self.model_type not in ['pheno', 'embed', 'both']:
             raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')
             
-        self.embedding = nn.Embedding(self.n_genes, self.d_embed)
-        self.embedding.weight.requires_grad = train_embed
 
-        self.embedding_ffn = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
-                                            nn.Dropout(self.p_dropout),
-                                            nn.ReLU(),
-                                            nn.Linear(self.d_embed, self.d_embed))
+
+        if self.embed_model == 'MLP':
+            self.embedding = nn.Embedding(self.n_genes, self.d_embed)
+            self.embedding.weight.requires_grad = train_embed
+            self.embedding_ffn = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
+                                                nn.Dropout(self.p_dropout),
+                                                nn.ReLU(),
+                                                nn.Linear(self.d_embed, self.d_embed))
+        elif self.embed_model == 'transformer':
+
+            n_heads = int(np.log2(d_embed))
+            n_heads = max(2, n_heads)
+            self.d_embed = self.d_embed * n_heads
+            self.embedding = nn.Embedding(self.n_genes, self.d_embed)
+            self.embedding.weight.requires_grad = train_embed
+            self.embedding_ffn = TwoLayerTransformer(d_embed=self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout)
         
         self.embedding_comb = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
                                                 nn.Dropout(self.p_dropout),
@@ -165,6 +177,48 @@ class BilinearMLPEmbedPheno(MLPEmbedPheno):
         x = self.embedding_comb(x)
 
         return x
+    
+class TwoLayerTransformer(nn.Module):
+    def __init__(self, d_embed, n_heads, p_dropout):
+        super(TwoLayerTransformer, self).__init__()
+        self.d_embed = d_embed
+        self.n_heads = n_heads
+        self.p_dropout = p_dropout
+
+
+        self.attention_1 = nn.MultiheadAttention(embed_dim=d_embed, num_heads=n_heads, dropout=p_dropout)
+        self.ffn_1 = nn.Sequential(
+            nn.Linear(d_embed, d_embed),
+            nn.ReLU(),
+            nn.Dropout(p_dropout),
+            nn.Linear(d_embed, d_embed),
+        )
+        self.norm_1 = nn.LayerNorm(d_embed)
+
+        self.attention_2 = nn.MultiheadAttention(embed_dim=d_embed, num_heads=n_heads, dropout=p_dropout)
+        self.ffn_2 = nn.Sequential(
+            nn.Linear(d_embed, d_embed),
+            nn.ReLU(),
+            nn.Dropout(p_dropout),
+            nn.Linear(d_embed, d_embed),
+        )
+        self.norm_2 = nn.LayerNorm(d_embed)
+
+    def forward(self, x):
+        # First transformer block
+        attn_output_1, _ = self.attention_1(x, x, x)
+        x = x + attn_output_1
+        x = self.norm_1(x)
+        x = x + self.ffn_1(x)
+
+        # Second transformer block
+        attn_output_2, _ = self.attention_2(x, x, x)
+        x = x + attn_output_2
+        x = self.norm_2(x)
+        x = x + self.ffn_2(x) 
+
+        return x
+    
 
 class VarModel(nn.Module):
     def __init__(self, base_model):
@@ -183,6 +237,7 @@ def model_loader(n_genes,
                  d_out = 1, 
                  p_dropout = 0.1, 
                  model_type = 'both', 
+                 embed_model = 'MLP',
                  train_embed = True, 
                  n_gene_per_pert = 2,
                  bilinear_comb = False, 
@@ -200,6 +255,7 @@ def model_loader(n_genes,
                               d_out,
                               p_dropout,
                               model_type,
+                              embed_model,
                               train_embed,
                               n_gene_per_pert)
     else:
