@@ -346,7 +346,7 @@ class NAIAD:
 
         self.preds = data
 
-    def plot_loss_curves(self, ax=None):
+    def plot_loss_curves(self, log=False, ax=None):
         """
         Plot the training and validation loss curves. 
         
@@ -364,10 +364,14 @@ class NAIAD:
         
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-
-        sns.lineplot(np.log(data['train_loss']), label = 'Train Loss', ax = ax)
-        sns.lineplot(np.log(data['val_loss']), label = 'Val Loss', ax = ax)
-        ax.set_ylabel('log(Loss)')
+        if log: 
+            sns.lineplot(np.log(data['train_loss']), label = 'Train Loss', ax = ax)
+            sns.lineplot(np.log(data['val_loss']), label = 'Val Loss', ax = ax)
+            ax.set_ylabel('log(Loss)')
+        else:
+            sns.lineplot(data['train_loss'], label = 'Train Loss', ax = ax)
+            sns.lineplot(data['val_loss'], label = 'Val Loss', ax = ax)
+            ax.set_ylabel('Loss')
         ax.set_xlabel('Epoch')
         ax.set_title(f'Training and Val Loss')
         
