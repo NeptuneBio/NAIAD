@@ -141,7 +141,7 @@ class NAIAD:
         if self.data is None:
             raise ValueError('Must populate `self.data` field before calling `prepare_dataloaders()`.')
         
-        datasets = {split: EmbedPhenoDataset(self.data[split], self.genes) for split in self.data}
+        datasets = {split: EmbedPhenoDataset(self.data[split], self.genes, split) for split in self.data}
         dataloaders = {split: DataLoader(datasets[split], shuffle=False, batch_size=self.batch_size) for split in datasets}
         self.dataloaders = dataloaders
 
@@ -248,7 +248,7 @@ class NAIAD:
         n_train_steps = self.n_epoch * len(self.dataloaders['train'])
         self.lr_scheduler = create_lr_scheduler(self.optimizer, n_train_steps / 10, n_train_steps)
 
-    def train_model(self):
+    def train_model(self, ranking_model=False):
         """
         Run training loop for `self.model` for `self.n_epoch` using the training data provided in `self.dataloaders`, the optimizer
         provided by `self.optimizer`, and the scheduler provided by `self.lr_scheduler`. Loss statistics are stored in `self.training_metrics`.
@@ -259,12 +259,18 @@ class NAIAD:
             raise RuntimeError('Must call `initialize_model()` before calling `train_model()`.')
         if self.optimizer is None:
             raise RuntimeError('Must call `setup_trainer()` before calling `train_model()`.')
+        
+        if ranking_model:
+            rank_predictor_optimizer =  torch.optim.Adam(self.model.rank_ffn.parameters(), lr=1e-3)
+
+
        
         all_loss = {split: [] for split in self.dataloaders}
         min_val_loss = np.inf
         best_model = self.model
         for _ in range(self.n_epoch):
             train_loss = 0
+            train_rank_loss = 0
             self.model.train()
             for genes, targets, phenos in self.dataloaders['train']:
                 genes = genes.to(self.device)
@@ -278,8 +284,17 @@ class NAIAD:
                 loss.backward()
                 self.optimizer.step()
                 self.lr_scheduler.step()
-
                 train_loss += loss
+                if ranking_model:
+                    rank_pred = self.model.forward_rank_predictor(genes, phenos)
+                    rank_loss = F.mse_loss(rank_true, rank_pred)
+                    train_rank_loss += rank_loss
+
+                    rank_predictor_optimizer.zero_grad()
+                    rank_predictor_optimizer.backward()
+                    rank_predictor_optimizer.step()
+                    
+                 
 
             all_loss['train'].append(train_loss.detach().cpu().numpy().item() / self.dataloaders['train'].dataset.data.shape[0])
 
@@ -310,6 +325,7 @@ class NAIAD:
 
         self.best_model = best_model
         self.training_metrics = {f'{split}_loss': all_loss[split] for split in all_loss}
+    
     
     def generate_preds(self, use_best=False):
         """
