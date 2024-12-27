@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+import torch.nn.functional as F
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -272,7 +272,12 @@ class NAIAD:
             train_loss = 0
             train_rank_loss = 0
             self.model.train()
-            for genes, targets, phenos in self.dataloaders['train']:
+            for  train_loader in self.dataloaders['train']:
+                if ranking_model:
+                    genes, targets, phenos, rank = train_loader
+                    rank = rank.to(self.device)
+                else:
+                    genes, targets, phenos = train_loader
                 genes = genes.to(self.device)
                 targets = targets.to(self.device)
                 phenos = phenos.to(self.device)
@@ -285,9 +290,11 @@ class NAIAD:
                 self.optimizer.step()
                 self.lr_scheduler.step()
                 train_loss += loss
+
+
                 if ranking_model:
                     rank_pred = self.model.forward_rank_predictor(genes, phenos)
-                    rank_loss = F.mse_loss(rank_true, rank_pred)
+                    rank_loss = F.mse_loss(rank, rank_pred)
                     train_rank_loss += rank_loss
 
                     rank_predictor_optimizer.zero_grad()
