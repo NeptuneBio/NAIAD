@@ -75,9 +75,7 @@ class MLPEmbedPheno(nn.Module):
         self.embed_model = embed_model
 
         if self.model_type not in ['pheno', 'embed', 'both']:
-            raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')
-            
-
+            raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')  
 
         if self.embed_model == 'MLP':
             self.embedding = nn.Embedding(self.n_genes, self.d_embed)
@@ -93,6 +91,16 @@ class MLPEmbedPheno(nn.Module):
             self.embedding = nn.Embedding(self.n_genes, self.d_embed)
             self.embedding.weight.requires_grad = train_embed
             self.embedding_ffn = TwoLayerMultiHeadAttention(d_embed=self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout)
+        elif self.embed_model == 'transformer':
+            n_heads = int(np.log2(d_embed))
+            n_heads = max(2, n_heads)
+            self.d_embed = self.d_embed * n_heads 
+            self.embedding = nn.Embedding(self.n_genes, self.d_embed)
+            self.embedding.weight.requires_grad = train_embed
+
+            self.embedding_ffn = TwoLayerTransformer(d_embed=self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout)
+
+
         
         self.embedding_comb = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
                                                 nn.Dropout(self.p_dropout),
@@ -116,9 +124,9 @@ class MLPEmbedPheno(nn.Module):
          
         
     def extract_embedding(self, x, comb=True):
-        x = self.embedding(x)            
-        x = x.reshape(x.shape[0]*self.n_gene_per_pert, x.shape[2])
+        x = self.embedding(x)                    
         if comb:
+            x = x.reshape(x.shape[0]*self.n_gene_per_pert, x.shape[2])
             x = self.embedding_ffn(x)
             x = x.reshape(-1, self.n_gene_per_pert, x.shape[1])
             x = torch.sum(x, axis=1)
@@ -127,6 +135,15 @@ class MLPEmbedPheno(nn.Module):
     def forward_embed(self, x):
         x = self.extract_embedding(x, comb=True)     
         x = self.embedding_comb(x)
+        return x
+    
+    def forward_embed_transformer(self, x):
+        x = self.extract_embedding(x, comb=False)     
+        x = x.permute(1, 0, 2)
+        # enter transformer block
+        x, attention = self.embedding_ffn(x)
+        x = self.embedding_comb(x)
+
         return x
 
     def forward_rank_predictor(self, x, phenos):
@@ -147,7 +164,10 @@ class MLPEmbedPheno(nn.Module):
             return x.squeeze()
 
         elif self.model_type == 'both':
-            x = self.forward_embed(x)
+            if self.embed_model == 'transformer':
+                x = self.forward_embed_transformer(x)
+            else:
+                x = self.forward_embed(x)
             phenos = self.pheno_ffn(phenos)
             out_x = x + phenos
             if return_intermediate:
@@ -233,6 +253,7 @@ class TwoLayerMultiHeadAttention(nn.Module):
 
     def forward(self, x):
         # First transformer block
+
         attn_output_1, _ = self.attention_1(x, x, x)
         x = x + attn_output_1
         x = self.norm_1(x)
@@ -245,6 +266,52 @@ class TwoLayerMultiHeadAttention(nn.Module):
         x = x + self.ffn_2(x) 
 
         return x
+    
+
+class TwoLayerTransformer(nn.Module):
+    def __init__(self, d_embed, n_heads, p_dropout):
+        super(TwoLayerTransformer, self).__init__()
+        self.d_embed = d_embed
+        self.n_heads = n_heads
+        self.p_dropout = p_dropout
+
+
+        self.attention_1 = nn.MultiheadAttention(embed_dim=d_embed, num_heads=n_heads, dropout=p_dropout)
+        self.ffn_1 = nn.Sequential(
+            nn.Linear(d_embed, d_embed),
+            nn.ReLU(),
+            nn.Dropout(p_dropout),
+            nn.Linear(d_embed, d_embed),
+        )
+        self.norm_1 = nn.LayerNorm(d_embed)
+
+        self.attention_2 = nn.MultiheadAttention(embed_dim=d_embed, num_heads=n_heads, dropout=p_dropout)
+        self.ffn_2 = nn.Sequential(
+            nn.Linear(d_embed, d_embed),
+            nn.ReLU(),
+            nn.Dropout(p_dropout),
+            nn.Linear(d_embed, d_embed),
+        )
+        self.norm_2 = nn.LayerNorm(d_embed)
+
+
+    def forward(self, x):
+        # First transformer block
+        # input dimensions: seq_len, batch_size, embed_dim
+        attn_output_1, attn_weights_1 = self.attention_1(x, x, x)
+        x = x + attn_output_1
+        x = self.norm_1(x)
+        x = x + self.ffn_1(x)
+
+        # Second transformer block
+        attn_output_2, attn_weights_2 = self.attention_2(x, x, x)
+        x = x + attn_output_2
+        x = self.norm_2(x)
+        x = x + self.ffn_2(x) 
+        x = torch.mean(x, dim=0)
+        attn_output_avg = (attn_weights_1 + attn_weights_2)/2
+  
+        return x, attn_output_avg
     
 
     
