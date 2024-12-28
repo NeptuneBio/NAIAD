@@ -274,7 +274,8 @@ class TwoLayerTransformer(nn.Module):
         self.d_embed = d_embed
         self.n_heads = n_heads
         self.p_dropout = p_dropout
-
+                
+        self.cls_token = nn.Parameter(torch.randn(1, 1, d_embed))
 
         self.attention_1 = nn.MultiheadAttention(embed_dim=d_embed, num_heads=n_heads, dropout=p_dropout)
         self.ffn_1 = nn.Sequential(
@@ -298,6 +299,9 @@ class TwoLayerTransformer(nn.Module):
     def forward(self, x):
         # First transformer block
         # input dimensions: seq_len, batch_size, embed_dim
+        batch_size = x.shape[1]
+        cls_token_expanded = self.cls_token.expand(-1, batch_size, -1)  # [1, batch_size, embed_dim]
+        x = torch.cat([cls_token_expanded, x], dim=0) 
         attn_output_1, attn_weights_1 = self.attention_1(x, x, x)
         x = x + attn_output_1
         x = self.norm_1(x)
@@ -308,10 +312,13 @@ class TwoLayerTransformer(nn.Module):
         x = x + attn_output_2
         x = self.norm_2(x)
         x = x + self.ffn_2(x) 
-        x = torch.mean(x, dim=0)
+        cls_output = x[0, :, :]
+
         attn_output_avg = (attn_weights_1 + attn_weights_2)/2
   
-        return x, attn_output_avg
+        return cls_output, attn_output_avg
+    
+ 
     
 
     
