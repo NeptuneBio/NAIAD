@@ -427,8 +427,8 @@ class NAIAD:
                     split_additive_term.extend(additive_term.detach().cpu().numpy().tolist())
 
                 data[split].loc[:, 'preds'] = split_preds
-                data[split].loc[:, 'gene_term'] = split_preds
-                data[split].loc[:, 'additive_term'] = split_preds
+                data[split].loc[:, 'gene_term'] = split_gene_term
+                data[split].loc[:, 'additive_term'] = split_additive_term
     
         self.intermediate_results = data
 
