@@ -73,6 +73,11 @@ class MLPEmbedPheno(nn.Module):
         self.model_type = model_type.lower()
         self.n_gene_per_pert = n_gene_per_pert
         self.embed_model = embed_model
+        n_heads = 1
+
+        if self.embed_model not in ['MLP', 'multihead', 'transformer', 'transformer-cls']:
+            raise ValueError('embed_model must be one of the following: "MLP", "multihead", "transformer", "transformer-cls"')
+
 
         if self.model_type not in ['pheno', 'embed', 'both']:
             raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')  
@@ -84,22 +89,19 @@ class MLPEmbedPheno(nn.Module):
                                                 nn.Dropout(self.p_dropout),
                                                 nn.ReLU(),
                                                 nn.Linear(self.d_embed, self.d_embed))
-        elif self.embed_model == 'multihead':
+        else:
             n_heads = int(np.log2(d_embed))
             n_heads = max(2, n_heads)
             self.d_embed = self.d_embed * n_heads
             self.embedding = nn.Embedding(self.n_genes, self.d_embed)
             self.embedding.weight.requires_grad = train_embed
-            self.embedding_ffn = TwoLayerMultiHeadAttention(d_embed=self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout)
-        elif self.embed_model == 'transformer':
-            n_heads = int(np.log2(d_embed))
-            n_heads = max(2, n_heads)
-            self.d_embed = self.d_embed * n_heads 
-            self.embedding = nn.Embedding(self.n_genes, self.d_embed)
-            self.embedding.weight.requires_grad = train_embed
 
-            self.embedding_ffn = TwoLayerTransformer(d_embed=self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout)
-
+            if self.embed_model == 'multihead':
+                self.embedding_ffn = TwoLayerMultiHeadAttention(d_embed=self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout)
+            elif self.embed_model == 'transformer':
+                self.embedding_ffn = TwoLayerTransformer(d_embed=self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout, use_cls_token=False)
+            elif self.embed_model == 'transformer-cls':
+                self.embedding_ffn = TwoLayerTransformer(d_embed=self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout, use_cls_token=True)
 
         
         self.embedding_comb = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
@@ -164,7 +166,7 @@ class MLPEmbedPheno(nn.Module):
             return x.squeeze()
 
         elif self.model_type == 'both':
-            if self.embed_model == 'transformer':
+            if self.embed_model in ['transformer', 'transformer-cls']:
                 x = self.forward_embed_transformer(x)
             else:
                 x = self.forward_embed(x)
@@ -269,18 +271,19 @@ class TwoLayerMultiHeadAttention(nn.Module):
     
 
 class TwoLayerTransformer(nn.Module):
-    def __init__(self, d_embed, n_heads, p_dropout):
+    def __init__(self, d_embed, n_heads, p_dropout, use_cls_token=False):
         super(TwoLayerTransformer, self).__init__()
         self.d_embed = d_embed
         self.n_heads = n_heads
         self.p_dropout = p_dropout
-                
-        self.cls_token = nn.Parameter(torch.randn(1, 1, d_embed))
+        self.use_cls_token = use_cls_token
+        if self.use_cls_token:
+            self.cls_token = nn.Parameter(torch.randn(1, 1, d_embed))
 
         self.attention_1 = nn.MultiheadAttention(embed_dim=d_embed, num_heads=n_heads, dropout=p_dropout)
         self.ffn_1 = nn.Sequential(
             nn.Linear(d_embed, d_embed),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(p_dropout),
             nn.Linear(d_embed, d_embed),
         )
@@ -289,19 +292,19 @@ class TwoLayerTransformer(nn.Module):
         self.attention_2 = nn.MultiheadAttention(embed_dim=d_embed, num_heads=n_heads, dropout=p_dropout)
         self.ffn_2 = nn.Sequential(
             nn.Linear(d_embed, d_embed),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(p_dropout),
             nn.Linear(d_embed, d_embed),
         )
         self.norm_2 = nn.LayerNorm(d_embed)
 
-
     def forward(self, x):
         # First transformer block
         # input dimensions: seq_len, batch_size, embed_dim
         batch_size = x.shape[1]
-        cls_token_expanded = self.cls_token.expand(-1, batch_size, -1)  # [1, batch_size, embed_dim]
-        x = torch.cat([cls_token_expanded, x], dim=0) 
+        if self.use_cls_token:
+            cls_token_expanded = self.cls_token.expand(-1, batch_size, -1)  # [1, batch_size, embed_dim]
+            x = torch.cat([cls_token_expanded, x], dim=0) 
         attn_output_1, attn_weights_1 = self.attention_1(x, x, x)
         x = x + attn_output_1
         x = self.norm_1(x)
@@ -312,11 +315,15 @@ class TwoLayerTransformer(nn.Module):
         x = x + attn_output_2
         x = self.norm_2(x)
         x = x + self.ffn_2(x) 
-        cls_output = x[0, :, :]
+
+        if self.use_cls_token:
+           output = x[0, :, :]
+        else:
+            output = torch.mean(x, dim=0)
 
         attn_output_avg = (attn_weights_1 + attn_weights_2)/2
   
-        return cls_output, attn_output_avg
+        return output, attn_output_avg
     
  
     
