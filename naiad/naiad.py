@@ -333,17 +333,21 @@ class NAIAD:
         self.best_model = best_model
         self.training_metrics = {f'{split}_loss': all_loss[split] for split in all_loss}
 
-    def generate_attentions(self):
+    def generate_attentions(self, use_best=False):
         all_attentions = {split: [] for split in self.dataloaders}
         self.model.eval()
         with torch.no_grad():
+            if use_best:
+                model = self.best_model
+            else:
+                model = self.model
             for split in self.dataloaders:
                 for loader in self.dataloaders[split]:
                     genes, targets, phenos = loader
                     genes = genes.to(self.device)
                     targets = targets.to(self.device)
                     phenos = phenos.to(self.device)
-                    attention_weights = self.model.get_attention_weights(genes)
+                    attention_weights = model.get_attention_weights(genes)
                     all_attentions[split].append(attention_weights)
                 all_attentions[split] = torch.cat(all_attentions[split], dim=0)
         self.all_attentions = all_attentions
