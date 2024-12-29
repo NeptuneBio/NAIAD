@@ -3,7 +3,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
-    
+import warnings
+
 class EmbedPhenoDataset(Dataset):
     def __init__(self, data, genes, data_type='train', control_gene='negative', n_gene_per_pert=2, pheno_shuffle=True):
         super().__init__()
@@ -143,10 +144,20 @@ class MLPEmbedPheno(nn.Module):
         x = self.extract_embedding(x, comb=False)     
         x = x.permute(1, 0, 2)
         # enter transformer block
-        x, attention = self.embedding_ffn(x)
+        x, _ = self.embedding_ffn(x)
         x = self.embedding_comb(x)
-
         return x
+    
+    def get_attention_weights(self, x):
+        x = self.extract_embedding(x, comb=False)     
+        x = x.permute(1, 0, 2)
+        if self.embed_model in ['transformer','transformer-cls']:
+            _, attn_weights = self.embedding_ffn(x)
+            return attn_weights
+        else:
+            warnings.warn('Attention weights only available for transformer models')
+            return None
+
 
     def forward_rank_predictor(self, x, phenos):
         x = self.extract_embedding(x, comb=True)

@@ -3,7 +3,7 @@ import copy
 import logging
 import random
 import pickle
-
+import warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -332,6 +332,23 @@ class NAIAD:
 
         self.best_model = best_model
         self.training_metrics = {f'{split}_loss': all_loss[split] for split in all_loss}
+
+    def generate_attentions(self):
+        all_attentions = {split: [] for split in self.dataloaders}
+        self.model.eval()
+        with torch.no_grad():
+            for split in self.dataloaders:
+                for loader in self.dataloaders[split]:
+                    genes, targets, phenos = loader
+                    genes = genes.to(self.device)
+                    targets = targets.to(self.device)
+                    phenos = phenos.to(self.device)
+                    attention_weights = self.model.get_attention_weights(genes)
+                    all_attentions[split].append(attention_weights)
+                all_attentions[split] = torch.cat(all_attentions[split], dim=0)
+        self.all_attentions = all_attentions
+
+
     
     
     def generate_preds(self, use_best=False):
