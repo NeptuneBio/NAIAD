@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-
+from sklearn.linear_model import LinearRegression
 from .utils import split_data, create_lr_scheduler
 from .models import EmbedPhenoDataset, model_loader
 
@@ -347,14 +347,13 @@ class NAIAD:
                     genes = genes.to(self.device)
                     targets = targets.to(self.device)
                     phenos = phenos.to(self.device)
-                    attention_weights = model.get_attention_weights(genes)
+                    attention_weights = model.get_attention_weights(genes).detach().cpu()
+                    # attention_weights dims: (number_atten, batch_size, target seq length, source seq length)
                     all_attentions[split].append(attention_weights)
-                all_attentions[split] = torch.cat(all_attentions[split], dim=0)
+                all_attentions[split] = torch.cat(all_attentions[split], dim=1)
         self.all_attentions = all_attentions
 
-
-    
-    
+   
     def generate_preds(self, use_best=False):
         """
         Generate predictions for each data split using the specified model given by `use_best`.
@@ -389,6 +388,63 @@ class NAIAD:
             data[split].loc[:, 'preds'] = split_preds
 
         self.preds = data
+
+    def generate_intermediate_results(self, use_best=False):
+        """
+        Generate intermediate results for each data split using the specified model given by `use_best`.
+
+        Args:
+            use_best (bool): should the 'best_model' (from early stopping) or final 'model' (from last epoch of training) be used to 
+                generate predictions? if True: use best_model; if False, use final model
+
+        Returns:
+            data (dict): dictionary of pandas DataFrames containing genes, pheno values, and model predictions
+        """
+        if self.best_model is None and use_best:
+            raise RuntimeError('Cannot set `use_best=True` to generate predictions before model has been trained.')
+        
+        data = {split: self.data[split] for split in self.data}
+        self.model.eval()
+        with torch.no_grad():
+            for split in self.dataloaders:
+                split_preds = []
+                split_gene_term = []
+                split_additive_term = []
+
+                for genes, targets, phenos in self.dataloaders[split]:
+                    genes = genes.to(self.device)
+                    targets = targets.to(self.device)
+                    phenos = phenos.to(self.device)
+
+                    if use_best:
+                        model = self.best_model
+                    else:
+                        model = self.model
+                    preds, gene_term, additive_term = model(genes, phenos, return_intermediate=True)
+
+                    split_preds.extend(preds.detach().cpu().numpy().tolist())
+                    split_gene_term.extend(gene_term.detach().cpu().numpy().tolist())
+                    split_additive_term.extend(additive_term.detach().cpu().numpy().tolist())
+
+                data[split].loc[:, 'preds'] = split_preds
+                data[split].loc[:, 'gene_term'] = split_preds
+                data[split].loc[:, 'additive_term'] = split_preds
+    
+        self.intermediate_results = data
+
+    def run_linear_regression(self):
+        """
+        Run linear regression on the embeddings to predict the targets. Store the linear regression model in `self.lr_model`.
+        """
+       # model.fit(naiad_data[['g1_score', 'g2_score']], naiad_data['comb_score'])
+
+        self.lr_model = LinearRegression()
+        self.lr_model.fit(self.data['train'][['g1_score', 'g2_score']], self.data['train']['comb_score'])
+        for split in self.data:
+            self.data[split]['linear_predicted'] = self.lr_model.predict(self.data[split][['g1_score', 'g2_score']])
+            self.data[split]['linear_residuals'] = self.data[split]['comb_score'] - self.data[split]['linear_predicted']
+ 
+
 
     def plot_loss_curves(self, log=False, ax=None):
         """

@@ -184,7 +184,7 @@ class MLPEmbedPheno(nn.Module):
             phenos = self.pheno_ffn(phenos)
             out_x = x + phenos
             if return_intermediate:
-                return out_x.squeeze(), x[:, 0].squeeze(), x[:, 1].squeeze()
+                return out_x.squeeze(), x.squeeze(), phenos.squeeze()
             return out_x.squeeze()
                 
         return None
@@ -266,7 +266,6 @@ class TwoLayerMultiHeadAttention(nn.Module):
 
     def forward(self, x):
         # First transformer block
-
         attn_output_1, _ = self.attention_1(x, x, x)
         x = x + attn_output_1
         x = self.norm_1(x)
@@ -332,9 +331,9 @@ class TwoLayerTransformer(nn.Module):
         else:
             output = torch.mean(x, dim=0)
 
-        attn_output_avg = (attn_weights_1 + attn_weights_2)/2
+        attn_output = torch.stack((attn_weights_1, attn_weights_2), dim=0)
   
-        return output, attn_output_avg
+        return output, attn_output
     
  
     
