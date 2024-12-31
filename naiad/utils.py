@@ -295,12 +295,11 @@ def find_top_n_perturbations(df, pred_keys, pheno_key, min=10, max=200, by=10, a
         return roc_matches, ax
     else:
         return roc_matches
-    
 
 
-def EnsembleModels(model, n_ensemble, output_type = 'loss', model_args=None, device=None, n_epoch=100, seed=1442, verbose=False):
-    ensemble_models = [] 
-    ensmble_output = []
+def RunModelsReplicates(model, n_ensemble, output_type = 'loss', model_args=None, device=None, n_epoch=100, seed=1442, verbose=False):
+    rep_models = [] 
+    rep_output = []
     loop = tqdm.tqdm(range(n_ensemble)) if verbose else range(n_ensemble)
     for i in loop:
         model.set_seed(seed=seed + i)
@@ -310,16 +309,16 @@ def EnsembleModels(model, n_ensemble, output_type = 'loss', model_args=None, dev
         model.train_model()
         if output_type == 'loss':
             losses = model.training_metrics  
-            ensmble_output.append(losses)
+            rep_output.append(losses)
         elif output_type == 'intermediate':
             model.run_linear_regression()
             model.generate_intermediate_results(use_best=True) 
             results = model.intermediate_results
-            ensmble_output.append(results)
+            rep_output.append(results)
 
-        ensemble_models.append(model)
+        rep_models.append(model)
 
-    return ensemble_models, ensmble_output
+    return rep_models, rep_output
 
 
 def reload_module(module_name):
