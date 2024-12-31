@@ -70,11 +70,15 @@ class NAIAD:
                  n_test,
                  n_val = None,
                  batch_size = 1024, 
+                 add_training_rank = False,
+                 ranking_bins = 10,
                  seed = None):
                  
         self.original_data = data
         self.seed = seed
         self.batch_size = batch_size
+        self.add_training_rank = add_training_rank
+        self.ranking_bins = ranking_bins
 
         gene_cols = [col for col in self.original_data.columns if 'gene' in col]
         genes = [set(self.original_data[col]) for col in gene_cols]
@@ -154,9 +158,25 @@ class NAIAD:
         
         logger.info(f'Shuffling data with seed {self.seed}...')
         self.data = self.original_data.sample(frac=1, random_state=self.np_rng) # shuffle rows of data
+
+
+
         self.data = split_data(self.data, self.n_train, self.n_val, self.n_test)
+        # add rank to training data
+        if self.add_training_rank:
+            self.data['train']['training_rank'], bins = pd.qcut(self.data['train']['comb_score'],
+                                                                q=self.ranking_bins, retbins=True, labels=False)
+            self.data['val']['training_rank'] = self.data['val']['comb_score'].apply(lambda score: self.assign_rank(score, bins))
+            self.data['test']['training_rank'] = self.data['test']['comb_score'].apply(lambda score: self.assign_rank(score, bins))
         # self.dataloaders = prepare_dataloaders(self.data, EmbedPhenoDataset, self.batch_size, genes=self.genes)
         self.prepare_dataloaders()
+
+    def assign_rank(self, score, bins):
+        """Assign a bin and rank to a comb_score based on bins."""
+        rank_idx = np.digitize(score, bins, right=True) - 1
+        # if the value is smaller than the smallest bin, then assign it to  -1. 
+        rank_idx = np.clip(rank_idx, -1, len(bins) - 2)  # Ensure bin index is within bounds
+        return rank_idx
 
     def initialize_model(self, model_args=None, device='cpu'):
         """

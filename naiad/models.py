@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 import warnings
 
 class EmbedPhenoDataset(Dataset):
-    def __init__(self, data, genes, data_type='train', control_gene='negative', n_gene_per_pert=2, pheno_shuffle=True):
+    def __init__(self, data, genes, control_gene='negative', n_gene_per_pert=2, pheno_shuffle=True):
         super().__init__()
         self.data = data
 
@@ -36,8 +36,11 @@ class EmbedPhenoDataset(Dataset):
             row_idx = torch.argsort(torch.rand(self.phenos.shape, generator=self.generator), dim=-1)
             self.phenos = self.phenos[torch.arange(len(self.phenos)).unsqueeze(-1), row_idx]
         
-        if data_type == 'train' and data.columns.str.contains('rank').any():
-            self.rank =  torch.tensor(data['rank'].values)
+        if data.columns.str.contains('rank').any():
+            rank_var = data.columns[data.columns.str.contains('rank')]
+            if len(rank_var) > 1:
+                raise ValueError('Multiple rank variables found in data')
+            self.rank =  torch.tensor(data[rank_var].values)
 
     def __len__(self):
         return self.data.shape[0]
