@@ -103,9 +103,9 @@ class ActiveLearner:
         self.batch_size = batch_size
         self.early_stop = early_stop
 
-        gene_cols = [col for col in self.original_data.columns if 'gene' in col]
-        genes = [set(self.original_data[col]) for col in gene_cols]
-        self.genes = sorted(list(set.union(*genes)))
+        treatment_cols = [col for col in self.original_data.columns if 'id' in col]
+        treatments = [set(self.original_data[col]) for col in treatment_cols]
+        self.treatments = sorted(list(set.union(*treatments)))
 
         # check argument validity    
         if not (model_optimizer_settings is None or isinstance(model_optimizer_settings, dict) or \
@@ -349,18 +349,18 @@ class ActiveLearner:
     @staticmethod
     def _overwrite_data_with_measured(pred_data, measured_data):
         """
-        Overwrite predictions in `pred_data` with any matching measurements from `measured_data` data. Useful for calculating TPR of finding strongest perturbations.
+        Overwrite predictions in `pred_data` with any matching measurements from `measured_data` data. Useful for calculating TPR of finding strongest treatments.
         
         Args:
-            pred_data (pd.DataFrame): Dataframe containing columns for `gene1`, `gene2`, ... `geneN` and `mean`
-            measured_data (pd.DataFrame): Dataframe containing columns for `gene1`, `gene2`, ... `geneN` and `comb_score`
+            pred_data (pd.DataFrame): Dataframe containing columns for `id1`, `id2`, ... `idN` and `mean`
+            measured_data (pd.DataFrame): Dataframe containing columns for `id1`, `id2`, ... `idN` and `comb_score`
 
         Returns:
-            combined_data (pd.DataFrame): updated dataframe with new column `measured+pred` for the combination of predicted and measured perturbations.
+            combined_data (pd.DataFrame): updated dataframe with new column `measured+pred` for the combination of predicted and measured treatments.
         """
 
-        gene_cols = [col for col in pred_data.columns if 'gene' in col]
-        matches = pd.merge(left=pred_data, right=measured_data, on=gene_cols, how='left', indicator=True)
+        treatment_cols = [col for col in pred_data.columns if 'id' in col]
+        matches = pd.merge(left=pred_data, right=measured_data, on=treatment_cols, how='left', indicator=True)
         match_rows = matches[matches['_merge'] == 'both'].index
 
         combined_data = copy.deepcopy(pred_data)
@@ -434,7 +434,7 @@ class ActiveLearner:
                 
                 # generate predictions from linear model to benchmark model predictions
                 linear_model = LinearRegression()
-                feature_cols = [col for col in round_data[sampling_type]['train'].columns if re.search(r'g\d+_score', col)]
+                feature_cols = [col for col in round_data[sampling_type]['train'].columns if re.search(r'id\d+_score', col)]
                 train_features = round_data[sampling_type]['train'][feature_cols]
                 linear_model.fit(train_features, round_data[sampling_type]['train']['comb_score'])
                 for split in round_data[sampling_type]:

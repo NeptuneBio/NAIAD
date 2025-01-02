@@ -1,18 +1,19 @@
 import os
 import copy
-import logging
-import random
+import re
 import pickle
+import logging
 import warnings
+import random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.linear_model import LinearRegression
 import torch.nn.functional as F
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from sklearn.linear_model import LinearRegression
 from .utils import split_data, create_lr_scheduler
 from .models import EmbedPhenoDataset, model_loader
 
@@ -52,17 +53,17 @@ class NAIAD:
             n_test = 1000
     """
     
-    # map number of times each gene is seen to embedding size for model
-    n_gene_seen = {0: 2,
-                   2: 2,
-                   4: 4,
-                   10: 16,
-                   20: 16,
-                   30: 32,
-                   40: 64,
-                   60: 64,
-                   80: 128,
-                   100: 128}
+    # map number of times each treatment is seen to embedding size for model
+    n_treatment_seen = {0: 2,
+                        2: 2,
+                        4: 4,
+                        10: 16,
+                        20: 16,
+                        30: 32,
+                        40: 64,
+                        60: 64,
+                        80: 128,
+                        100: 128}
     
     def __init__(self, 
                  data,
@@ -80,9 +81,9 @@ class NAIAD:
         self.add_training_rank = add_training_rank
         self.ranking_bins = ranking_bins
 
-        gene_cols = [col for col in self.original_data.columns if 'gene' in col]
-        genes = [set(self.original_data[col]) for col in gene_cols]
-        self.genes = sorted(list(set.union(*genes)))
+        treatment_cols = [col for col in self.original_data.columns if re.match(r'id\d+$', col)]
+        treatments = [set(self.original_data[col]) for col in treatment_cols]
+        self.treatments = sorted(list(set.union(*treatments)))
 
         # set up number of training points selected
         if n_train > 1:
@@ -145,7 +146,7 @@ class NAIAD:
         if self.data is None:
             raise ValueError('Must populate `self.data` field before calling `prepare_dataloaders()`.')
         
-        datasets = {split: EmbedPhenoDataset(self.data[split], self.genes, split) for split in self.data}
+        datasets = {split: EmbedPhenoDataset(self.data[split], self.treatments, split) for split in self.data}
         dataloaders = {split: DataLoader(datasets[split], shuffle=False, batch_size=self.batch_size) for split in datasets}
         self.dataloaders = dataloaders
 
@@ -159,8 +160,6 @@ class NAIAD:
         logger.info(f'Shuffling data with seed {self.seed}...')
         self.data = self.original_data.sample(frac=1, random_state=self.np_rng) # shuffle rows of data
 
-
-
         self.data = split_data(self.data, self.n_train, self.n_val, self.n_test)
         # add rank to training data
         if self.add_training_rank:
@@ -168,7 +167,6 @@ class NAIAD:
                                                                 q=self.ranking_bins, retbins=True, labels=False)
             self.data['val']['training_rank'] = self.data['val']['comb_score'].apply(lambda score: self.assign_rank(score, bins))
             self.data['test']['training_rank'] = self.data['test']['comb_score'].apply(lambda score: self.assign_rank(score, bins))
-        # self.dataloaders = prepare_dataloaders(self.data, EmbedPhenoDataset, self.batch_size, genes=self.genes)
         self.prepare_dataloaders()
 
     def assign_rank(self, score, bins):
@@ -180,9 +178,9 @@ class NAIAD:
 
     def initialize_model(self, model_args=None, device='cpu'):
         """
-        Initialize NAIAD model used for training and inference of genetic perturbation response. Use self.model_args to
-        initialize model, and populate it with default values for `d_embed` and `d_pheno_hid` if they aren't already
-        specified by user.
+        Initialize NAIAD model used for training and inference of treatment (e.g. genetic perturbation or chemical stimulation) 
+        response. Use self.model_args to initialize model, and populate it with default values for `d_embed` and `d_pheno_hid` 
+        if they aren't already specified by user.
         
         Args:
             model_args (dict, optional): a dictionary containing arguments to use for NAIAD model. If it is not provided, then
@@ -209,12 +207,12 @@ class NAIAD:
             self.model_args['p_dropout'] = 0.1
 
         if 'd_embed' not in self.model_args:
-            logger.info('`d_embed` is not set for model, so assigning a value based on training dataset size and number of genes in dataset')
+            logger.info('`d_embed` is not set for model, so assigning a value based on training dataset size and number of treatments in dataset')
         
-            n_gene = len(self.genes)
-            n_gene_seen_in_train = self.n_train / n_gene
-            n_gene_seen_floor = [x for x in self.n_gene_seen if x < n_gene_seen_in_train][-1] # if want to make this more efficient, do a binary search of the sorted list of keys
-            self.model_args['d_embed'] = self.n_gene_seen[n_gene_seen_floor]
+            n_treatment = len(self.treatments)
+            n_treatment_seen_in_train = self.n_train / n_treatment
+            n_treatment_seen_floor = [x for x in self.n_treatment_seen if x < n_treatment_seen_in_train][-1] # if want to make this more efficient, do a binary search of the sorted list of keys
+            self.model_args['d_embed'] = self.n_treatment_seen[n_treatment_seen_floor]
 
         if 'd_pheno_hid' not in self.model_args:
             logger.info('`d_pheno_hid` is not set for model, so using default value of `256`')
@@ -223,7 +221,7 @@ class NAIAD:
         if 'var_pred' in self.model_args:
             raise ValueError('var_pred is not currently supported by NAIAD')
         
-        self.model = model_loader(len(self.genes), **self.model_args).to(self.device)
+        self.model = model_loader(len(self.treatments), **self.model_args).to(self.device)
 
     def setup_trainer(self, n_epoch, model_optimizer_settings=None, loss_fn=nn.MSELoss(reduction='sum')):
         """
@@ -294,15 +292,15 @@ class NAIAD:
             self.model.train()
             for  train_loader in self.dataloaders['train']:
                 if ranking_model:
-                    genes, targets, phenos, rank = train_loader
+                    treatments, targets, phenos, rank = train_loader
                     rank = rank.to(self.device)
                 else:
-                    genes, targets, phenos = train_loader
-                genes = genes.to(self.device)
+                    treatments, targets, phenos = train_loader
+                treatments = treatments.to(self.device)
                 targets = targets.to(self.device)
                 phenos = phenos.to(self.device)
 
-                preds = self.model(genes, phenos)
+                preds = self.model(treatments, phenos)
                 loss = self.loss_fn(targets, preds)
 
                 self.optimizer.zero_grad()
@@ -313,8 +311,8 @@ class NAIAD:
 
 
                 if ranking_model:
-                    rank_pred = self.model.forward_rank_predictor(genes, phenos)
-#                    rank_loss = F.mse_loss(rank.squeeze(), rank_pred.squeeze())
+                    rank_pred = self.model.forward_rank_predictor(treatments, phenos)
+                    # rank_loss = F.mse_loss(rank.squeeze(), rank_pred.squeeze())
                     rank_loss = ((rank.squeeze() -  rank_pred.squeeze())**2).mean()
                     train_rank_loss += rank_loss
 
@@ -333,16 +331,16 @@ class NAIAD:
 
                     for loader in self.dataloaders[split]:
                         if ranking_model:
-                            genes, targets, phenos, rank = loader
+                            treatments, targets, phenos, rank = loader
                             rank = rank.to(self.device)
                         else: 
-                            genes, targets, phenos = loader
-                
-                        genes = genes.to(self.device)
+                            treatments, targets, phenos = loader
+                        
+                        treatments = treatments.to(self.device)
                         targets = targets.to(self.device)
                         phenos = phenos.to(self.device)
 
-                        preds = self.model(genes, phenos)
+                        preds = self.model(treatments, phenos)
                         loss = self.loss_fn(targets, preds)
 
                         split_loss += loss
@@ -368,11 +366,11 @@ class NAIAD:
                 model = self.model
             for split in self.dataloaders:
                 for loader in self.dataloaders[split]:
-                    genes, targets, phenos = loader
-                    genes = genes.to(self.device)
+                    treatments, targets, phenos = loader
+                    treatments = treatments.to(self.device)
                     targets = targets.to(self.device)
                     phenos = phenos.to(self.device)
-                    attention_weights = model.get_attention_weights(genes).detach().cpu()
+                    attention_weights = model.get_attention_weights(treatments).detach().cpu()
                     # attention_weights dims: (number_atten, batch_size, target seq length, source seq length)
                     all_attentions[split].append(attention_weights)
                 all_attentions[split] = torch.cat(all_attentions[split], dim=1)
@@ -388,7 +386,7 @@ class NAIAD:
                 generate predictions? if True: use best_model; if False, use final model
 
         Returns:
-            data (dict): dictionary of pandas DataFrames containing genes, pheno values, and model predictions
+            data (dict): dictionary of pandas DataFrames containing treatments, pheno values, and model predictions
         """
         if self.best_model is None and use_best:
             raise RuntimeError('Cannot set `use_best=True` to generate predictions before model has been trained.')
@@ -398,12 +396,13 @@ class NAIAD:
             split_preds = []
             for split_loader in self.dataloaders[split]:
                 if self.add_training_rank:
-                    genes, targets, phenos, rank = split_loader
+                    treatments, targets, phenos, rank = split_loader
                     rank = rank.to(self.device)
                 else:
-                    genes, targets, phenos = split_loader
+                    treatments, targets, phenos = split_loader
 
-                genes = genes.to(self.device)
+                treatments = treatments.to(self.device)
+
                 targets = targets.to(self.device)
                 phenos = phenos.to(self.device)
 
@@ -411,7 +410,7 @@ class NAIAD:
                     model = self.best_model
                 else:
                     model = self.model
-                preds = model(genes, phenos)
+                preds = model(treatments, phenos)
 
                 preds = preds.detach().cpu().numpy().tolist()
                 split_preds.extend(preds)
@@ -429,7 +428,7 @@ class NAIAD:
                 generate predictions? if True: use best_model; if False, use final model
 
         Returns:
-            data (dict): dictionary of pandas DataFrames containing genes, pheno values, and model predictions
+            data (dict): dictionary of pandas DataFrames containing treatments, pheno values, and model predictions
         """
         if self.best_model is None and use_best:
             raise RuntimeError('Cannot set `use_best=True` to generate predictions before model has been trained.')
@@ -439,11 +438,11 @@ class NAIAD:
         with torch.no_grad():
             for split in self.dataloaders:
                 split_preds = []
-                split_gene_term = []
+                split_treatment_term = []
                 split_additive_term = []
 
-                for genes, targets, phenos in self.dataloaders[split]:
-                    genes = genes.to(self.device)
+                for treatments, targets, phenos in self.dataloaders[split]:
+                    treatments = treatments.to(self.device)
                     targets = targets.to(self.device)
                     phenos = phenos.to(self.device)
 
@@ -451,14 +450,14 @@ class NAIAD:
                         model = self.best_model
                     else:
                         model = self.model
-                    preds, gene_term, additive_term = model(genes, phenos, return_intermediate=True)
+                    preds, treatment_term, additive_term = model(treatments, phenos, return_intermediate=True)
 
                     split_preds.extend(preds.detach().cpu().numpy().tolist())
-                    split_gene_term.extend(gene_term.detach().cpu().numpy().tolist())
+                    split_treatment_term.extend(treatment_term.detach().cpu().numpy().tolist())
                     split_additive_term.extend(additive_term.detach().cpu().numpy().tolist())
 
                 data[split].loc[:, 'preds'] = split_preds
-                data[split].loc[:, 'gene_term'] = split_gene_term
+                data[split].loc[:, 'treatment_term'] = split_treatment_term
                 data[split].loc[:, 'additive_term'] = split_additive_term
     
         self.intermediate_results = data
@@ -470,9 +469,9 @@ class NAIAD:
        # model.fit(naiad_data[['g1_score', 'g2_score']], naiad_data['comb_score'])
 
         self.lr_model = LinearRegression()
-        self.lr_model.fit(self.data['train'][['g1_score', 'g2_score']], self.data['train']['comb_score'])
+        self.lr_model.fit(self.data['train'][['id1_score', 'id2_score']], self.data['train']['comb_score'])
         for split in self.data:
-            self.data[split]['linear_predicted'] = self.lr_model.predict(self.data[split][['g1_score', 'g2_score']])
+            self.data[split]['linear_predicted'] = self.lr_model.predict(self.data[split][['id1_score', 'id2_score']])
             self.data[split]['linear_residuals'] = self.data[split]['comb_score'] - self.data[split]['linear_predicted']
  
 

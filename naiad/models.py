@@ -6,29 +6,29 @@ from torch.utils.data import Dataset
 import warnings
 
 class EmbedPhenoDataset(Dataset):
-    def __init__(self, data, genes, control_gene='negative', n_gene_per_pert=2, pheno_shuffle=True):
+    def __init__(self, data, treatments, control_treatment='negative', n_treatment_per_pert=2, pheno_shuffle=True):
         super().__init__()
         self.data = data
 
-        self.genes = genes
-        self.control_gene = control_gene
-        self.gene_to_idx = {g: i for i, g in enumerate(self.genes)}
-        self.idx_to_gene = {i: g for i, g in enumerate(self.genes)}
+        self.treatments = treatments
+        self.control_treatment = control_treatment
+        self.treatment_to_idx = {g: i for i, g in enumerate(self.treatments)}
+        self.idx_to_treatment = {i: g for i, g in enumerate(self.treatments)}
 
         self.pheno_shuffle = pheno_shuffle
         
-        all_gene_idx = []
-        for i in range(n_gene_per_pert):
-            gene_i = 'gene' + str(i+1)
-            gene_names = self.data[gene_i].values
-            gene_idx = [self.gene_to_idx[g] for g in gene_names]
-            gene_idx = torch.tensor(gene_idx)
-            all_gene_idx.append(gene_idx)
+        all_treatment_idx = []
+        for i in range(n_treatment_per_pert):
+            treatment_i = 'id' + str(i+1)
+            treatment_names = self.data[treatment_i].values
+            treatment_idx = [self.treatment_to_idx[g] for g in treatment_names]
+            treatment_idx = torch.tensor(treatment_idx)
+            all_treatment_idx.append(treatment_idx)
 
-        self.gene_idx = torch.stack(all_gene_idx, dim=-1)
+        self.treatment_idx = torch.stack(all_treatment_idx, dim=-1)
         self.targets = torch.tensor(data['comb_score'].values)
         
-        pheno_cols = [f'g{i}_score' for i in range(1, n_gene_per_pert + 1)]
+        pheno_cols = [f'id{i}_score' for i in range(1, n_treatment_per_pert + 1)]
         self.phenos = torch.tensor(data[pheno_cols].values)
 
         if self.pheno_shuffle:
@@ -46,17 +46,17 @@ class EmbedPhenoDataset(Dataset):
         return self.data.shape[0]
     
     def __getitem__(self, i):
-        gene_idx = self.gene_idx[i]
+        treatment_idx = self.treatment_idx[i]
         target = self.targets[i]
         phenos = self.phenos[i]
         if hasattr(self, 'rank'):
             rank = self.rank[i]
-            return gene_idx, target, phenos, rank
+            return treatment_idx, target, phenos, rank
         else:
-            return gene_idx, target, phenos
+            return treatment_idx, target, phenos
 
-class NAIADEmbedPheno(nn.Module):
-    def __init__(self, n_genes, 
+class MLPEmbedPheno(nn.Module):
+    def __init__(self, n_treatments, 
                  d_embed = 16, 
                  d_pheno_hid = 512, 
                  d_out = 1, 
@@ -64,10 +64,10 @@ class NAIADEmbedPheno(nn.Module):
                  model_type = 'both', 
                  embed_model = 'MLP',
                  train_embed = True, 
-                 n_gene_per_pert = 2):
+                 n_treatment_per_pert = 2):
         super().__init__()
         
-        self.n_genes = n_genes
+        self.n_treatments = n_treatments
         self.d_embed = d_embed
         self.d_out = d_out
         self.p_dropout = p_dropout
@@ -75,7 +75,7 @@ class NAIADEmbedPheno(nn.Module):
         self.d_embed = d_embed
         self.d_pheno_hid = d_pheno_hid
         self.model_type = model_type.lower()
-        self.n_gene_per_pert = n_gene_per_pert
+        self.n_treatment_per_pert = n_treatment_per_pert
         self.embed_model = embed_model
         n_heads = 1
 
@@ -87,7 +87,7 @@ class NAIADEmbedPheno(nn.Module):
             raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')  
 
         if self.embed_model == 'MLP':
-            self.embedding = nn.Embedding(self.n_genes, self.d_embed)
+            self.embedding = nn.Embedding(self.n_treatments, self.d_embed)
             self.embedding.weight.requires_grad = train_embed
             self.embedding_ffn = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
                                                 nn.Dropout(self.p_dropout),
@@ -97,7 +97,7 @@ class NAIADEmbedPheno(nn.Module):
             n_heads = int(np.log2(d_embed))
             n_heads = max(2, n_heads)
             self.d_embed = self.d_embed * n_heads
-            self.embedding = nn.Embedding(self.n_genes, self.d_embed)
+            self.embedding = nn.Embedding(self.n_treatments, self.d_embed)
             self.embedding.weight.requires_grad = train_embed
 
             if self.embed_model == 'multihead':
@@ -113,7 +113,7 @@ class NAIADEmbedPheno(nn.Module):
                                                 nn.ReLU(),
                                                 nn.Linear(self.d_embed, 1))
             
-        self.pheno_ffn = nn.Sequential(nn.Linear(self.n_gene_per_pert, d_pheno_hid, bias=False),
+        self.pheno_ffn = nn.Sequential(nn.Linear(self.n_treatment_per_pert, d_pheno_hid, bias=False),
                                         nn.Dropout(self.p_dropout),
                                         nn.GELU(),
                                         nn.Linear(self.d_pheno_hid, self.d_pheno_hid, bias=False),
@@ -131,9 +131,9 @@ class NAIADEmbedPheno(nn.Module):
     def extract_embedding(self, x, comb=True):
         x = self.embedding(x)                    
         if comb:
-            x = x.reshape(x.shape[0]*self.n_gene_per_pert, x.shape[2])
+            x = x.reshape(x.shape[0]*self.n_treatment_per_pert, x.shape[2])
             x = self.embedding_ffn(x)
-            x = x.reshape(-1, self.n_gene_per_pert, x.shape[1])
+            x = x.reshape(-1, self.n_treatment_per_pert, x.shape[1])
             x = torch.sum(x, axis=1)
         return x
 
@@ -197,23 +197,23 @@ class NAIADEmbedPheno(nn.Module):
                 
         return None
 
-class BilinearMLPEmbedPheno(NAIADEmbedPheno):
-    def __init__(self, n_genes, 
+class BilinearMLPEmbedPheno(MLPEmbedPheno):
+    def __init__(self, n_treatments, 
                  d_embed = 16, 
                  d_pheno_hid = 512, 
                  d_out = 1, 
                  p_dropout = 0.1, 
                  model_type = 'both', 
                  train_embed = True, 
-                 n_gene_per_pert = 2):
-        super().__init__(n_genes,
+                 n_treatment_per_pert = 2):
+        super().__init__(n_treatments,
                          d_embed,
                          d_pheno_hid,
                          d_out,
                          p_dropout,
                          model_type,
                          train_embed,
-                         n_gene_per_pert)
+                         n_treatment_per_pert)
                 
         self.bilinear_weights = nn.Parameter(
             1 / 100 * torch.randn((self.d_embed, self.d_embed, self.d_embed))
@@ -228,9 +228,9 @@ class BilinearMLPEmbedPheno(NAIADEmbedPheno):
     def forward_embed(self, x):
         x = self.embedding(x)
 
-        x = x.reshape(x.shape[0]*self.n_gene_per_pert, x.shape[2])
+        x = x.reshape(x.shape[0]*self.n_treatment_per_pert, x.shape[2])
         x = self.embedding_ffn(x)
-        x = x.reshape(-1, self.n_gene_per_pert, x.shape[1])
+        x = x.reshape(-1, self.n_treatment_per_pert, x.shape[1])
 
         x0 = self.bilinear_weights.matmul(x[:, 0, :].T).T # TODO: Check these dimensions
         x1 = self.bilinear_weights.matmul(x[:, 1, :].T).T
@@ -362,7 +362,7 @@ class VarModel(nn.Module):
         var = self.var_model(x, phenos, return_intermediate)
         return tuple(*preds, *var)
         
-def model_loader(n_genes, 
+def model_loader(n_treatments, 
                  d_embed = 16, 
                  d_pheno_hid = 512, 
                  d_out = 1, 
@@ -370,7 +370,7 @@ def model_loader(n_genes,
                  model_type = 'both', 
                  embed_model = 'MLP',
                  train_embed = True, 
-                 n_gene_per_pert = 2,
+                 n_treatments_per_pert = 2,
                  bilinear_comb = False, 
                  var_pred = False):
 
@@ -380,7 +380,7 @@ def model_loader(n_genes,
         raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')
     
     if not bilinear_comb:
-        model = NAIADEmbedPheno(n_genes,
+        model = MLPEmbedPheno(n_treatments,
                               d_embed,
                               d_pheno_hid,
                               d_out,
@@ -388,16 +388,16 @@ def model_loader(n_genes,
                               model_type,
                               embed_model,
                               train_embed,
-                              n_gene_per_pert)
+                              n_treatments_per_pert)
     else:
-        model = BilinearMLPEmbedPheno(n_genes,
+        model = BilinearMLPEmbedPheno(n_treatments,
                                         d_embed,
                                         d_pheno_hid,
                                         d_out,
                                         p_dropout,
                                         model_type,
                                         train_embed,
-                                        n_gene_per_pert)
+                                        n_treatments_per_pert)
 
     if var_pred:
         model = VarModel(model)
@@ -405,20 +405,20 @@ def model_loader(n_genes,
     return model
     
 class RecoverModel(nn.Module):
-    def __init__(self, n_genes, 
+    def __init__(self, n_treatments, 
                  d_embed = 16, 
                  d_out = 1, 
                  p_dropout = 0.1, 
-                 n_gene_per_pert = 2):
+                 n_treatment_per_pert = 2):
         super().__init__()
         
-        self.n_genes = n_genes
+        self.n_treatments = n_treatments
         self.d_embed = d_embed
         self.d_out = d_out
         self.p_dropout = p_dropout
-        self.n_gene_per_pert = n_gene_per_pert
+        self.n_treatment_per_pert = n_treatment_per_pert
 
-        self.embedding = nn.Embedding(self.n_genes, self.d_embed)
+        self.embedding = nn.Embedding(self.n_treatments, self.d_embed)
 
         self.embedding_ffn = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
                                             nn.Dropout(self.p_dropout),
@@ -447,9 +447,9 @@ class RecoverModel(nn.Module):
     def forward(self, x, phenos=None):
         x = self.embedding(x)
         
-        x = x.reshape(x.shape[0]*self.n_gene_per_pert, x.shape[2])
+        x = x.reshape(x.shape[0]*self.n_treatment_per_pert, x.shape[2])
         x = self.embedding_ffn(x)
-        x = x.reshape(-1, self.n_gene_per_pert, x.shape[1])
+        x = x.reshape(-1, self.n_treatment_per_pert, x.shape[1])
 
         ## Code below follows RECOVER repo but I suspect it isn't correct...
         # I think the last transpose should be an axis permutation to preserve relative order of dimensions
