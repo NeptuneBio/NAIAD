@@ -321,9 +321,6 @@ class NAIAD:
                     rank_predictor_optimizer.zero_grad()
                     rank_loss.backward()
                     rank_predictor_optimizer.step()
-                 
-
-            all_loss['train'].append(train_loss.detach().cpu().numpy().item() / self.dataloaders['train'].dataset.data.shape[0])
 
             self.model.eval()
             with torch.no_grad():

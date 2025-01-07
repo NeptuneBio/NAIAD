@@ -31,7 +31,7 @@ class ActiveLearner:
         data (pandas.DataFrame): DataFrame containing phenotype measurements
         n_ensemble (int): number of models to initialize in the ensemble for each round
         n_epoch (int): number of epochs to train the model
-        device (str): device for running model, e.g. 'cpu' or 'cuda'
+        device (str): device for running model, e.g. 'cpu' or 'cuda' or 'mps'
         model (torch.nn.Module, optional): class of model to use for active learning. Default: NAIAD
         model_args (dict or list[dict], optional): a dictionary or list of dictionaries containing
             arguments to use for `model`, default None. Should be either a single dictionary (all 
