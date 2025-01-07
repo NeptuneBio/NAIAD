@@ -55,7 +55,7 @@ class EmbedPhenoDataset(Dataset):
         else:
             return gene_idx, target, phenos
 
-class MLPEmbedPheno(nn.Module):
+class NAIADEmbedPheno(nn.Module):
     def __init__(self, n_genes, 
                  d_embed = 16, 
                  d_pheno_hid = 512, 
@@ -197,7 +197,7 @@ class MLPEmbedPheno(nn.Module):
                 
         return None
 
-class BilinearMLPEmbedPheno(MLPEmbedPheno):
+class BilinearMLPEmbedPheno(NAIADEmbedPheno):
     def __init__(self, n_genes, 
                  d_embed = 16, 
                  d_pheno_hid = 512, 
@@ -380,7 +380,7 @@ def model_loader(n_genes,
         raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')
     
     if not bilinear_comb:
-        model = MLPEmbedPheno(n_genes,
+        model = NAIADEmbedPheno(n_genes,
                               d_embed,
                               d_pheno_hid,
                               d_out,
