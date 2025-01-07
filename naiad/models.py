@@ -122,11 +122,10 @@ class MLPEmbedPheno(nn.Module):
                                         nn.Linear(self.d_pheno_hid, 1))
         
         
-        self.rank_ffn = nn.Sequential(TwoLayerMultiHeadAttention(d_embed=self.d_pheno_hid + self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout),
-                                        nn.Linear(self.d_embed + self.d_pheno_hid, d_out, bias=False),
+        self.rank_ffn = nn.Sequential(nn.Linear(self.d_embed + 1, self.d_embed // n_heads),
                                         nn.Dropout(self.p_dropout),
                                         nn.GELU(),
-                                        nn.Linear(d_out, d_out, bias=False))
+                                        nn.Linear(self.d_embed // n_heads, 1))
          
         
     def extract_embedding(self, x, comb=True):
@@ -163,7 +162,13 @@ class MLPEmbedPheno(nn.Module):
 
 
     def forward_rank_predictor(self, x, phenos):
-        x = self.extract_embedding(x, comb=True)
+
+        x = self.extract_embedding(x, comb=False)     
+        x = x.permute(1, 0, 2)
+        # enter transformer block
+        _, _, x = self.embedding_ffn(x, return_all_embeddings=True)
+        # remove cls token
+        x = x[1:, :, :].mean(axis=0)
         phenos = self.pheno_ffn(phenos)
         x = torch.cat([phenos, x], axis=1)
         # sampling score
@@ -311,7 +316,7 @@ class TwoLayerTransformer(nn.Module):
         )
         self.norm_2 = nn.LayerNorm(d_embed)
 
-    def forward(self, x):
+    def forward(self, x, return_all_embeddings=False):
         # First transformer block
         # input dimensions: seq_len, batch_size, embed_dim
         batch_size = x.shape[1]
@@ -335,8 +340,11 @@ class TwoLayerTransformer(nn.Module):
             output = torch.mean(x, dim=0)
 
         attn_output = torch.stack((attn_weights_1, attn_weights_2), dim=0)
-  
-        return output, attn_output
+
+        if return_all_embeddings:
+            return output, attn_output, x
+        else:
+            return output, attn_output
     
  
     

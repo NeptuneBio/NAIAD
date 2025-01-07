@@ -314,13 +314,13 @@ class NAIAD:
 
                 if ranking_model:
                     rank_pred = self.model.forward_rank_predictor(genes, phenos)
-                    rank_loss = F.mse_loss(rank, rank_pred)
+#                    rank_loss = F.mse_loss(rank.squeeze(), rank_pred.squeeze())
+                    rank_loss = ((rank.squeeze() -  rank_pred.squeeze())**2).mean()
                     train_rank_loss += rank_loss
 
                     rank_predictor_optimizer.zero_grad()
-                    rank_predictor_optimizer.backward()
+                    rank_loss.backward()
                     rank_predictor_optimizer.step()
-                    
                  
 
             all_loss['train'].append(train_loss.detach().cpu().numpy().item() / self.dataloaders['train'].dataset.data.shape[0])
@@ -329,10 +329,14 @@ class NAIAD:
             with torch.no_grad():
                 for split in self.dataloaders:
                     split_loss = 0
-                    if split == 'train':
-                        continue
 
-                    for genes, targets, phenos in self.dataloaders[split]:
+                    for loader in self.dataloaders[split]:
+                        if ranking_model:
+                            genes, targets, phenos, rank = loader
+                            rank = rank.to(self.device)
+                        else: 
+                            genes, targets, phenos = loader
+                
                         genes = genes.to(self.device)
                         targets = targets.to(self.device)
                         phenos = phenos.to(self.device)
@@ -391,7 +395,13 @@ class NAIAD:
         data = {split: self.data[split] for split in self.data}
         for split in self.dataloaders:
             split_preds = []
-            for genes, targets, phenos in self.dataloaders[split]:
+            for split_loader in self.dataloaders[split]:
+                if self.add_training_rank:
+                    genes, targets, phenos, rank = split_loader
+                    rank = rank.to(self.device)
+                else:
+                    genes, targets, phenos = split_loader
+
                 genes = genes.to(self.device)
                 targets = targets.to(self.device)
                 phenos = phenos.to(self.device)
