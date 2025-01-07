@@ -26,4 +26,4 @@ By optimizing experimental resources, NAIAD reduces the need for exhaustive test
 
 ### Cite Us
 
-Qin, J., Wessels, H. H., Fernandez-Granda, C., & Hao, Y. (2024). Active learning for efficient discovery of optimal gene combinations in the combinatorial perturbation space. arXiv preprint arXiv:2411.12010.
+[Qin, J., Wessels, H. H., Fernandez-Granda, C., & Hao, Y. (2024). Active learning for efficient discovery of optimal gene combinations in the combinatorial perturbation space. arXiv preprint arXiv:2411.12010.](https://arxiv.org/abs/2411.12010)
