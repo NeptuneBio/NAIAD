@@ -166,17 +166,21 @@ class NAIAD:
         if self.add_training_rank:
             self.data['train']['training_rank'], bins = pd.qcut(self.data['train']['comb_score'],
                                                                 q=self.ranking_bins, retbins=True, labels=False)
-            self.data['val']['training_rank'] = self.data['val']['comb_score'].apply(lambda score: self.assign_rank(score, bins))
-            self.data['test']['training_rank'] = self.data['test']['comb_score'].apply(lambda score: self.assign_rank(score, bins))
+            self.training_bins = bins
+            self.data['val']['training_rank'] = self.assign_rank(self.data['val']['comb_score'].values)
+            self.data['test']['training_rank'] = self.assign_rank(self.data['test']['comb_score'].values)
+            
         # self.dataloaders = prepare_dataloaders(self.data, EmbedPhenoDataset, self.batch_size, genes=self.genes)
         self.prepare_dataloaders()
 
-    def assign_rank(self, score, bins):
+    def assign_rank(self, scores, bins= None):
+        if bins is None:
+            bins = self.training_bins
         """Assign a bin and rank to a comb_score based on bins."""
-        rank_idx = np.digitize(score, bins, right=True) - 1
-        # if the value is smaller than the smallest bin, then assign it to  -1. 
-        rank_idx = np.clip(rank_idx, -1, len(bins) - 2)  # Ensure bin index is within bounds
-        return rank_idx
+        rank_indices = np.digitize(scores, bins, right=True) - 1
+        rank_indices = np.clip(rank_indices, -1, len(bins) - 2)
+    
+        return rank_indices
 
     def initialize_model(self, model_args=None, device='cpu'):
         """
@@ -313,9 +317,13 @@ class NAIAD:
 
 
                 if ranking_model:
-                    rank_pred = self.model.forward_rank_predictor(genes, phenos)
-#                    rank_loss = F.mse_loss(rank.squeeze(), rank_pred.squeeze())
+
+                    rank_pred = preds
                     rank_loss = ((rank.squeeze() -  rank_pred.squeeze())**2).mean()
+                    rank_loss_pred = self.model.forward_rank_predictor(genes, phenos)
+
+
+                    rank_mse = ((rank_loss.squeeze() -  rank_loss_pred.squeeze())**2).mean()
                     train_rank_loss += rank_loss
 
                     rank_predictor_optimizer.zero_grad()
