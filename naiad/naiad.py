@@ -368,7 +368,11 @@ class NAIAD:
                 model = self.model
             for split in self.dataloaders:
                 for loader in self.dataloaders[split]:
-                    genes, targets, phenos = loader
+                    if self.add_training_rank:
+                        genes, targets, phenos, rank = loader
+                        rank = rank.to(self.device)
+                    else:
+                        genes, targets, phenos = loader
                     genes = genes.to(self.device)
                     targets = targets.to(self.device)
                     phenos = phenos.to(self.device)
@@ -442,7 +446,13 @@ class NAIAD:
                 split_gene_term = []
                 split_additive_term = []
 
-                for genes, targets, phenos in self.dataloaders[split]:
+                for loader in self.dataloaders[split]:
+                    if self.add_training_rank:
+                        genes, targets, phenos, rank = loader
+                        rank = rank.to(self.device)
+                    else:
+                        genes, targets, phenos = loader
+                    genes, targets, phenos
                     genes = genes.to(self.device)
                     targets = targets.to(self.device)
                     phenos = phenos.to(self.device)
