@@ -103,7 +103,7 @@ class ActiveLearner:
         self.batch_size = batch_size
         self.early_stop = early_stop
 
-        treatment_cols = [col for col in self.original_data.columns if 'id' in col]
+        treatment_cols = [col for col in self.original_data.columns if re.match(r'^id\d+$', col)]
         treatments = [set(self.original_data[col]) for col in treatment_cols]
         self.treatments = sorted(list(set.union(*treatments)))
 
