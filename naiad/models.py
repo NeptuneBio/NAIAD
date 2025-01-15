@@ -40,7 +40,7 @@ class EmbedPhenoDataset(Dataset):
             rank_var = data.columns[data.columns.str.contains('rank')]
             if len(rank_var) > 1:
                 raise ValueError('Multiple rank variables found in data')
-            self.rank =  torch.tensor(data[rank_var].values)
+            self.rank =  torch.tensor(data[rank_var].values.squeeze())
 
     def __len__(self):
         return self.data.shape[0]

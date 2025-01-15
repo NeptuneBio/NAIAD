@@ -9,7 +9,7 @@ import torch
 import importlib
 import sys
 import tqdm
-
+import torch.nn.functional as F
 
 def load_naiad_data(data_path, control_gene_name='negative', shuffle_gene=True):
     """
@@ -319,6 +319,27 @@ def RunModelsReplicates(model, n_ensemble, output_type = 'loss', model_args=None
         rep_models.append(model)
 
     return rep_models, rep_output
+
+
+def compute_rank_loss(predicted_probs: torch.Tensor, true_ranks: torch.Tensor, num_bins: int) -> torch.Tensor:
+    """
+    Compute the loss between the predicted probabilistic distribution and true ranks.
+
+    Parameters:
+    - predicted_probs (torch.Tensor): Tensor of shape (batch_size, num_bins) with predicted probabilities.
+    - true_ranks (torch.Tensor): Tensor of shape (batch_size,) with true bin indices (integers).
+    - num_bins (int): Number of bins.
+
+    Returns:
+    - torch.Tensor: Loss value.
+    """
+    # Convert true ranks to one-hot encoded tensor
+    true_one_hot = F.one_hot(true_ranks, num_bins).float()  # Shape: (batch_size, num_bins)
+    
+    # Compute cross-entropy loss
+    loss = torch.sum(-true_one_hot * torch.log(predicted_probs + 1e-9), dim=-1)
+    
+    return loss
 
 
 def reload_module(module_name):

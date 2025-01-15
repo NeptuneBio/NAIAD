@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.linear_model import LinearRegression
-from .utils import split_data, create_lr_scheduler
+from .utils import split_data, create_lr_scheduler, compute_rank_loss
 from .models import EmbedPhenoDataset, model_loader
 
 logger = logging.getLogger(__name__)
@@ -181,6 +181,29 @@ class NAIAD:
         rank_indices = np.clip(rank_indices, -1, len(bins) - 2)
     
         return rank_indices
+    
+    def assign_rank_tensor(self, scores, bins=None, tau=None) -> torch.Tensor:
+        """
+        Assign a probabilistic distribution over bins using softmax.
+
+        Parameters:
+        - scores (torch.Tensor): A tensor of scores.
+        - bins (torch.Tensor): A tensor of bin edges.
+        - tau (float): A scaling factor.
+
+        Returns:
+        - torch.Tensor: A tensor of probabilities indicating likelihood of belonging to each bin.
+        """
+        if bins is None:
+            bins = self.training_bins
+        bins = torch.tensor(bins, dtype=scores.dtype, device=scores.device)
+        if tau is None:
+            tau = (torch.max(bins) - torch.min(bins)) / 10
+        diff = scores.unsqueeze(-1) - bins.unsqueeze(0)
+        probabilities = torch.softmax(-torch.abs(diff) / tau, dim=-1)
+
+        return probabilities
+
 
     def initialize_model(self, model_args=None, device='cpu'):
         """
@@ -309,26 +332,35 @@ class NAIAD:
                 preds = self.model(genes, phenos)
                 loss = self.loss_fn(targets, preds)
 
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-                self.lr_scheduler.step()
-                train_loss += loss
+
 
 
                 if ranking_model:
 
-                    rank_pred = preds
-                    rank_loss = ((rank.squeeze() -  rank_pred.squeeze())**2).mean()
+                    rank_pred = self.assign_rank_tensor(preds)
+                    rank_loss = compute_rank_loss(rank_pred, rank, len(self.training_bins))
                     rank_loss_pred = self.model.forward_rank_predictor(genes, phenos)
+                    rank_loss_mse = ((rank_loss.squeeze() -  rank_loss_pred.squeeze())**2).mean()
 
+                    train_rank_loss += rank_loss_mse
 
-                    rank_mse = ((rank_loss.squeeze() -  rank_loss_pred.squeeze())**2).mean()
-                    train_rank_loss += rank_loss
+                    combined_loss = loss + rank_loss_mse
 
+                    self.optimizer.zero_grad()
                     rank_predictor_optimizer.zero_grad()
-                    rank_loss.backward()
+                    combined_loss.backward()
+                    self.optimizer.step()
+                    self.lr_scheduler.step()
                     rank_predictor_optimizer.step()
+
+                    train_loss += loss
+
+                else:
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.optimizer.step()
+                    self.lr_scheduler.step()
+                    train_loss += loss
 
             all_loss['train'].append(train_loss.detach().cpu().numpy().item() / self.dataloaders['train'].dataset.data.shape[0])
 
