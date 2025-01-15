@@ -309,10 +309,12 @@ class NAIAD:
         
         if ranking_model:
             rank_predictor_optimizer =  torch.optim.Adam(self.model.rank_ffn.parameters(), lr=1e-3)
+        self.ranking_model = ranking_model
 
 
        
         all_loss = {split: [] for split in self.dataloaders}
+        all_rank_loss = {split: [] for split in self.dataloaders}
         min_val_loss = np.inf
         best_model = self.model
         for _ in range(self.n_epoch):
@@ -363,11 +365,15 @@ class NAIAD:
                     train_loss += loss
 
             all_loss['train'].append(train_loss.detach().cpu().numpy().item() / self.dataloaders['train'].dataset.data.shape[0])
+            if ranking_model:
+                all_rank_loss['train'].append(train_rank_loss.detach().cpu().numpy().item() / self.dataloaders['train'].dataset.data.shape[0])
+
 
             self.model.eval()
             with torch.no_grad():
                 for split in self.dataloaders:
                     split_loss = 0
+                    split_rank_loss = 0
                     if split == 'train':
                         continue
 
@@ -384,19 +390,29 @@ class NAIAD:
 
                         preds = self.model(genes, phenos)
                         loss = self.loss_fn(targets, preds)
+                        if ranking_model:
+                            rank_pred = self.assign_rank_tensor(preds)
+                            rank_loss = compute_rank_loss(rank_pred, rank, len(self.training_bins))
+                            rank_loss_pred = self.model.forward_rank_predictor(genes, phenos)
+                            rank_loss_mse = ((rank_loss.squeeze() -  rank_loss_pred.squeeze())**2).mean()
+                            split_rank_loss += rank_loss_mse
 
                         split_loss += loss
                     
                     split_loss = split_loss.detach().cpu().numpy().item() / self.dataloaders[split].dataset.data.shape[0]
+                    split_rank_loss = split_rank_loss.detach().cpu().numpy().item() / self.dataloaders[split].dataset.data.shape[0]
+ 
 
                     if split == 'val' and split_loss < min_val_loss:
                         min_val_loss = split_loss
                         best_model = copy.deepcopy(self.model)
 
                     all_loss[split].append(split_loss)
+                    all_rank_loss[split].append(split_rank_loss)
 
         self.best_model = best_model
         self.training_metrics = {f'{split}_loss': all_loss[split] for split in all_loss}
+        self.ranking_metrics = {f'{split}_loss': all_rank_loss[split] for split in all_loss}
 
     def generate_attentions(self, use_best=False):
         all_attentions = {split: [] for split in self.dataloaders}
@@ -438,8 +454,10 @@ class NAIAD:
             raise RuntimeError('Cannot set `use_best=True` to generate predictions before model has been trained.')
         
         data = {split: self.data[split] for split in self.data}
+        rank_data = {split: self.data[split] for split in self.data}
         for split in self.dataloaders:
             split_preds = []
+            split_rank_preds = []
             for split_loader in self.dataloaders[split]:
                 if self.add_training_rank:
                     genes, targets, phenos, rank = split_loader
@@ -459,10 +477,17 @@ class NAIAD:
 
                 preds = preds.detach().cpu().numpy().tolist()
                 split_preds.extend(preds)
+                if self.ranking_model:
+                    rank_loss_pred = self.model.forward_rank_predictor(genes, phenos)
+                    rank_loss_pred = rank_loss_pred.detach().cpu().numpy().tolist()
+                    split_rank_preds.extend(rank_loss_pred)
 
             data[split].loc[:, 'preds'] = split_preds
+            rank_data[split].loc[:, 'rank_preds'] = split_rank_preds
 
         self.preds = data
+        if self.ranking_model:
+            self.rank_preds = rank_data
 
     def generate_intermediate_results(self, use_best=False):
         """
