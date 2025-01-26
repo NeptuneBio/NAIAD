@@ -331,9 +331,6 @@ class NAIAD:
                 preds = self.model(genes, phenos)
                 loss = self.loss_fn(targets, preds)
 
-
-
-
                 if ranking_model:
 
                     rank_pred = self.assign_rank(preds)
@@ -550,7 +547,7 @@ class NAIAD:
  
 
 
-    def plot_loss_curves(self, log=False, ax=None):
+    def plot_loss_curves(self, rank_loss = False, log=False, ax=None):
         """
         Plot the training and validation loss curves. 
         
@@ -563,8 +560,11 @@ class NAIAD:
 
         if len(self.training_metrics) == 0:
             raise RuntimeError('Need to call train_model() function before plotting results.')
-
-        data = self.training_metrics
+        
+        if rank_loss:
+            data = self.ranking_metrics
+        else:
+            data = self.training_metrics
         
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(6, 4))
