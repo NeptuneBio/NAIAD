@@ -167,22 +167,14 @@ class NAIAD:
             self.data['train']['training_rank'], bins = pd.qcut(self.data['train']['comb_score'],
                                                                 q=self.ranking_bins, retbins=True, labels=False)
             self.training_bins = bins
-            self.data['val']['training_rank'] = self.assign_rank(self.data['val']['comb_score'].values)
-            self.data['test']['training_rank'] = self.assign_rank(self.data['test']['comb_score'].values)
+            self.data['val']['training_rank'] = self.assign_rank(self.data['val']['comb_score'].values, return_rank=True)
+            self.data['test']['training_rank'] = self.assign_rank(self.data['test']['comb_score'].values, return_rank=True)
             
         # self.dataloaders = prepare_dataloaders(self.data, EmbedPhenoDataset, self.batch_size, genes=self.genes)
         self.prepare_dataloaders()
 
-    def assign_rank(self, scores, bins= None):
-        if bins is None:
-            bins = self.training_bins
-        """Assign a bin and rank to a comb_score based on bins."""
-        rank_indices = np.digitize(scores, bins, right=True) - 1
-        rank_indices = np.clip(rank_indices, -1, len(bins) - 2)
     
-        return rank_indices
-    
-    def assign_rank_tensor(self, scores, bins=None, tau=None) -> torch.Tensor:
+    def assign_rank(self, scores, return_rank=False, bins=None, tau=None) -> torch.Tensor:
         """
         Assign a probabilistic distribution over bins using softmax.
 
@@ -194,6 +186,8 @@ class NAIAD:
         Returns:
         - torch.Tensor: A tensor of probabilities indicating likelihood of belonging to each bin.
         """
+        if not isinstance(scores, torch.Tensor):
+            scores = torch.tensor(scores)
         if bins is None:
             bins = self.training_bins
         bins = torch.tensor(bins, dtype=scores.dtype, device=scores.device)
@@ -201,7 +195,10 @@ class NAIAD:
             tau = (torch.max(bins) - torch.min(bins)) / 10
         diff = scores.unsqueeze(-1) - bins.unsqueeze(0)
         probabilities = torch.softmax(-torch.abs(diff) / tau, dim=-1)
-
+        if return_rank:
+            rank_indices = torch.argmax(probabilities, dim=-1)
+            rank_indices = rank_indices.detach().cpu().numpy().tolist()
+            return rank_indices
         return probabilities
 
 
@@ -339,7 +336,7 @@ class NAIAD:
 
                 if ranking_model:
 
-                    rank_pred = self.assign_rank_tensor(preds)
+                    rank_pred = self.assign_rank(preds)
                     rank_loss = compute_rank_loss(rank_pred, rank, len(self.training_bins))
                     rank_loss_pred = self.model.forward_rank_predictor(genes, phenos)
                     rank_loss_mse = ((rank_loss.squeeze() -  rank_loss_pred.squeeze())**2).mean()
@@ -391,7 +388,7 @@ class NAIAD:
                         preds = self.model(genes, phenos)
                         loss = self.loss_fn(targets, preds)
                         if ranking_model:
-                            rank_pred = self.assign_rank_tensor(preds)
+                            rank_pred = self.assign_rank(preds)
                             rank_loss = compute_rank_loss(rank_pred, rank, len(self.training_bins))
                             rank_loss_pred = self.model.forward_rank_predictor(genes, phenos)
                             rank_loss_mse = ((rank_loss.squeeze() -  rank_loss_pred.squeeze())**2).mean()
@@ -457,7 +454,7 @@ class NAIAD:
         rank_data = {split: self.data[split] for split in self.data}
         for split in self.dataloaders:
             split_preds = []
-            split_rank_preds = []
+            split_rank_loss_preds = []
             for split_loader in self.dataloaders[split]:
                 if self.add_training_rank:
                     genes, targets, phenos, rank = split_loader
@@ -480,10 +477,11 @@ class NAIAD:
                 if self.ranking_model:
                     rank_loss_pred = self.model.forward_rank_predictor(genes, phenos)
                     rank_loss_pred = rank_loss_pred.detach().cpu().numpy().tolist()
-                    split_rank_preds.extend(rank_loss_pred)
+                    split_rank_loss_preds.extend(rank_loss_pred)
 
             data[split].loc[:, 'preds'] = split_preds
-            rank_data[split].loc[:, 'rank_preds'] = split_rank_preds
+            rank_data[split].loc[:, 'rank_loss_preds'] = split_rank_loss_preds
+            rank_data[split].loc[:, 'rank_preds'] = self.assign_rank(torch.tensor(split_preds), return_rank=True)
 
         self.preds = data
         if self.ranking_model:

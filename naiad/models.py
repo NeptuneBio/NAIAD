@@ -172,7 +172,7 @@ class NAIADEmbedPheno(nn.Module):
         phenos = self.pheno_ffn(phenos)
         x = torch.cat([phenos, x], axis=1)
         # sampling score
-        x = self.rank_ffn(x)
+        x = self.rank_ffn(x).squeeze()
         return x
 
     def forward(self, x, phenos=None, return_intermediate=False):
