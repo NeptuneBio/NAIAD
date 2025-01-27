@@ -581,7 +581,7 @@ class NAIAD:
         
         return ax
     
-    def plot_preds(self, split, ax=None):
+    def plot_preds(self, split, rank_loss = False, ax=None):
         """
         Plot targets vs predictions for the model `ensemble` from `sampling_type` in `round` and data `split`.
 
@@ -592,16 +592,19 @@ class NAIAD:
         Returns:
             ax (matplotlib.axes.Axes): Axes object containing requested plot
         """
-
         if len(self.preds) == 0:
             raise RuntimeError('Need to call train_model() function before plotting results.')
-
-        data = self.preds[split]
-        
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        
+        if rank_loss:
+            data = self.rank_preds[split]
+            data['rank_loss'] = (data['rank_preds'] - data['training_rank'])**2
+            sns.scatterplot(data, x='rank_loss', y=f'rank_loss_preds', ax=ax)
 
-        sns.scatterplot(data, x='comb_score', y=f'preds', ax=ax)
+        else: 
+            data = self.preds[split]
+            sns.scatterplot(data, x='comb_score', y=f'preds', ax=ax)
         ax.set_xlabel('Targets')
         ax.set_ylabel('Preds')
         ax.set_title(f'Targets vs Preds, Split: {split}')
