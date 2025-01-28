@@ -185,7 +185,7 @@ class NAIAD:
         Args:
             model_args (dict, optional): a dictionary containing arguments to use for NAIAD model. If it is not provided, then
                 a default dictionary of model arguments will be used. The dictionary should have the following entries:
-                    - model_type (str): model type corresponding to 'embed', 'pheno', 'both'
+                    - model_type (str): model type corresponding to 'embed', 'pheno', 'both', 'recover'
                     - d_embed (int): dimension of embedding and its submodel hidden layers
                     - d_pheno_hid (int): hidden layer dimension of pheno submodel
                     - p_dropout (float): dropout probability for network during training
@@ -229,8 +229,8 @@ class NAIAD:
 
         Args:
             model_optimizer_settings (dict, optional): a dictionary or a list of dictionaries for settings of model
-                optimizer. If set as None, then will be populated with default values. Should be either a dictionary 
-                with the following entries:
+                optimizer. If set as None, then will be populated with default values. Depending on `self.model_type`,
+                the dictionary should have the following entries:
                     - pheno_lr (optional: float): learning rate for pheno submodel, 
                         present if model_type is 'pheno' or 'both'
                     - embed_lr (optional: float): learning rate for embedding submodel, 
@@ -254,11 +254,14 @@ class NAIAD:
         model_type = self.model_args['model_type']
         weight_decay = self.optimizer_settings['weight_decay']
         optimizer_dicts = []
-        if model_type == 'pheno' or model_type == 'both':
-            optimizer_dicts.append({'params': self.model.pheno_ffn.parameters(), 'lr': self.optimizer_settings['pheno_lr'], 'weight_decay': weight_decay})
-        if model_type == 'embed' or model_type == 'both':
-            embedding_params = list(self.model.embedding_ffn.parameters()) + list(self.model.embedding.parameters()) + list(self.model.embedding_comb.parameters())
-            optimizer_dicts.append({'params': embedding_params, 'lr': self.optimizer_settings['embed_lr'], 'weight_decay': weight_decay})
+        if model_type == 'recover':
+            optimizer_dicts.append({'params': self.model.parameters(), 'lr': self.optimizer_settings['embed_lr'], 'weight_decay': weight_decay})
+        else:
+            if model_type == 'pheno' or model_type == 'both':
+                optimizer_dicts.append({'params': self.model.pheno_ffn.parameters(), 'lr': self.optimizer_settings['pheno_lr'], 'weight_decay': weight_decay})
+            if model_type == 'embed' or model_type == 'both':
+                embedding_params = list(self.model.embedding_ffn.parameters()) + list(self.model.embedding.parameters()) + list(self.model.embedding_comb.parameters())
+                optimizer_dicts.append({'params': embedding_params, 'lr': self.optimizer_settings['embed_lr'], 'weight_decay': weight_decay})
 
         optimizer = torch.optim.Adam(optimizer_dicts)
         self.optimizer = optimizer
@@ -280,8 +283,6 @@ class NAIAD:
         
         if ranking_model:
             rank_predictor_optimizer =  torch.optim.Adam(self.model.rank_ffn.parameters(), lr=1e-3)
-
-
        
         all_loss = {split: [] for split in self.dataloaders}
         min_val_loss = np.inf
@@ -544,7 +545,7 @@ class NAIAD:
             file_prefix (str, optional): prefix for file name to store data
         """
         # in theory these are same condition, so if one of them fails but not the other then there is a bug somewhere
-        if len(self.training_metrics) == 0: 
+        if len(self.training_metrics) == 0:  
             raise RuntimeError('Must call `train_model()` function to generate results before saving them to file.')
         
         if not os.path.isdir(save_dir):

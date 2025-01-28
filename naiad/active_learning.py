@@ -905,6 +905,15 @@ class ActiveLearnerReplicates:
             else:
                 n_round = max_round
 
+        method_colors = { # colors for plotting measuerments of different `methods`
+            'random': '#1f77b4',  # blue
+            'mean': '#2ca02c',     # green
+            'std': '#d62728',         # red
+            'mean+std': '#ff7f0e',     # orange
+            'residual': '#9467bd',       # purple
+            'residual+std': '#8c564b'          # brown
+        }
+
         for metric in metrics:
             for split in splits:
                 if metric == 'mse':
@@ -921,14 +930,6 @@ class ActiveLearnerReplicates:
                     mse_plot_data.append(plot_data)
                     mse_plot_data = pd.concat(mse_plot_data, axis=0)
 
-                    method_colors = {
-                        'random': '#1f77b4',  # blue
-                        'mean': '#2ca02c',     # green
-                        'std': '#d62728',         # red
-                        'mean+std': '#ff7f0e',     # orange
-                        'residual': '#9467bd',       # purple
-                        'residual+std': '#8c564b'          # brown
-                    }
                     fig, ax = plt.subplots(1, 1)
                     sns.boxplot(mse_plot_data, x='Round', y=metric, hue='Method', palette=method_colors, fill=False, ax=ax)
                     ax.set_ylabel('MSE')

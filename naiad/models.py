@@ -55,7 +55,7 @@ class EmbedPhenoDataset(Dataset):
         else:
             return treatment_idx, target, phenos
 
-class MLPEmbedPheno(nn.Module):
+class EmbedPhenoModel(nn.Module):
     def __init__(self, n_treatments, 
                  d_embed = 16, 
                  d_pheno_hid = 512, 
@@ -197,7 +197,7 @@ class MLPEmbedPheno(nn.Module):
                 
         return None
 
-class BilinearMLPEmbedPheno(MLPEmbedPheno):
+class BilinearEmbedPhenoModel(EmbedPhenoModel):
     def __init__(self, n_treatments, 
                  d_embed = 16, 
                  d_pheno_hid = 512, 
@@ -368,7 +368,7 @@ def model_loader(n_treatments,
                  d_out = 1, 
                  p_dropout = 0.1, 
                  model_type = 'both', 
-                 embed_model = 'MLP',
+                 embed_model = 'transformer-cls',
                  train_embed = True, 
                  n_treatments_per_pert = 2,
                  bilinear_comb = False, 
@@ -376,28 +376,36 @@ def model_loader(n_treatments,
 
     model_type = model_type.lower()
     
-    if model_type not in ['pheno', 'embed', 'both']:
+    if model_type not in ['pheno', 'embed', 'both', 'recover']:
         raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')
     
-    if not bilinear_comb:
-        model = MLPEmbedPheno(n_treatments,
-                              d_embed,
-                              d_pheno_hid,
-                              d_out,
-                              p_dropout,
-                              model_type,
-                              embed_model,
-                              train_embed,
-                              n_treatments_per_pert)
+    if model_type == 'recover':
+        model = RecoverModel(n_treatments, d_embed, d_out, p_dropout, n_treatments_per_pert)
+    
     else:
-        model = BilinearMLPEmbedPheno(n_treatments,
-                                        d_embed,
-                                        d_pheno_hid,
-                                        d_out,
-                                        p_dropout,
-                                        model_type,
-                                        train_embed,
-                                        n_treatments_per_pert)
+        if not bilinear_comb:
+            model = EmbedPhenoModel(
+                n_treatments,
+                d_embed,
+                d_pheno_hid,
+                d_out,
+                p_dropout,
+                model_type,
+                embed_model,
+                train_embed,
+                n_treatments_per_pert
+            )
+        else:
+            model = BilinearEmbedPhenoModel(
+                n_treatments,
+                d_embed,
+                d_pheno_hid,
+                d_out,
+                p_dropout,
+                model_type,
+                train_embed,
+                n_treatments_per_pert
+            )
 
     if var_pred:
         model = VarModel(model)
