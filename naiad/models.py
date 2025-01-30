@@ -82,17 +82,18 @@ class EmbedPhenoModel(nn.Module):
         if self.embed_model not in ['MLP', 'multihead', 'transformer', 'transformer-cls']:
             raise ValueError('embed_model must be one of the following: "MLP", "multihead", "transformer", "transformer-cls"')
 
-
         if self.model_type not in ['pheno', 'embed', 'both']:
             raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')  
 
         if self.embed_model == 'MLP':
             self.embedding = nn.Embedding(self.n_treatments, self.d_embed)
             self.embedding.weight.requires_grad = train_embed
-            self.embedding_ffn = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
-                                                nn.Dropout(self.p_dropout),
-                                                nn.ReLU(),
-                                                nn.Linear(self.d_embed, self.d_embed))
+            self.embedding_ffn = nn.Sequential(
+                nn.Linear(self.d_embed, self.d_embed),
+                nn.Dropout(self.p_dropout),
+                nn.ReLU(),
+                nn.Linear(self.d_embed, self.d_embed)
+            )
         else:
             n_heads = int(np.log2(d_embed))
             n_heads = max(2, n_heads)
@@ -107,34 +108,42 @@ class EmbedPhenoModel(nn.Module):
             elif self.embed_model == 'transformer-cls':
                 self.embedding_ffn = TwoLayerTransformer(d_embed=self.d_embed, n_heads=n_heads, p_dropout=self.p_dropout, use_cls_token=True)
 
+        self.embedding_comb = nn.Sequential(
+            nn.Linear(self.d_embed, self.d_embed),
+            nn.Dropout(self.p_dropout),
+            nn.ReLU(),
+            nn.Linear(self.d_embed, 1)
+        )
         
-        self.embedding_comb = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
-                                                nn.Dropout(self.p_dropout),
-                                                nn.ReLU(),
-                                                nn.Linear(self.d_embed, 1))
-            
-        self.pheno_ffn = nn.Sequential(nn.Linear(self.n_treatment_per_pert, d_pheno_hid, bias=False),
-                                        nn.Dropout(self.p_dropout),
-                                        nn.GELU(),
-                                        nn.Linear(self.d_pheno_hid, self.d_pheno_hid, bias=False),
-                                        nn.Dropout(self.p_dropout),
-                                        nn.GELU(),
-                                        nn.Linear(self.d_pheno_hid, 1))
+        self.pheno_ffn = nn.Sequential(
+            nn.Linear(self.n_treatment_per_pert, d_pheno_hid, bias=False),
+            nn.Dropout(self.p_dropout),
+            nn.GELU(),
+            nn.Linear(self.d_pheno_hid, self.d_pheno_hid, bias=False),
+            nn.Dropout(self.p_dropout),
+            nn.GELU(),
+            nn.Linear(self.d_pheno_hid, 1)
+        )
         
-        
-        self.rank_ffn = nn.Sequential(nn.Linear(self.d_embed + 1, self.d_embed // n_heads),
-                                        nn.Dropout(self.p_dropout),
-                                        nn.GELU(),
-                                        nn.Linear(self.d_embed // n_heads, 1))
-         
+        self.rank_ffn = nn.Sequential(
+            nn.Linear(self.d_embed + 1, self.d_embed // n_heads),
+            nn.Dropout(self.p_dropout),
+            nn.GELU(),
+            nn.Linear(self.d_embed // n_heads, 1)
+        )
+
         
     def extract_embedding(self, x, comb=True):
         x = self.embedding(x)                    
         if comb:
-            x = x.reshape(x.shape[0]*self.n_treatment_per_pert, x.shape[2])
-            x = self.embedding_ffn(x)
-            x = x.reshape(-1, self.n_treatment_per_pert, x.shape[1])
-            x = torch.sum(x, axis=1)
+            if self.embed_model == 'MLP':
+                x = x.reshape(x.shape[0]*self.n_treatment_per_pert, x.shape[2])
+                x = self.embedding_ffn(x)
+                x = x.reshape(-1, self.n_treatment_per_pert, x.shape[1])
+                x = torch.sum(x, axis=1)
+            elif self.embed_model in ['transformer-cls', 'transformer']:
+                x = x.permute(1, 0, 2)
+                x, _ = self.embedding_ffn(x)
         return x
 
     def forward_embed(self, x):
@@ -287,7 +296,6 @@ class TwoLayerMultiHeadAttention(nn.Module):
 
         return x
     
-
 class TwoLayerTransformer(nn.Module):
     def __init__(self, d_embed, n_heads, p_dropout, use_cls_token=False):
         super(TwoLayerTransformer, self).__init__()
@@ -346,11 +354,6 @@ class TwoLayerTransformer(nn.Module):
         else:
             return output, attn_output
     
- 
-    
-
-    
-
 class VarModel(nn.Module):
     def __init__(self, base_model):
         super().__init__()
@@ -368,7 +371,7 @@ def model_loader(n_treatments,
                  d_out = 1, 
                  p_dropout = 0.1, 
                  model_type = 'both', 
-                 embed_model = 'transformer-cls',
+                 embed_model = 'MLP',
                  train_embed = True, 
                  n_treatments_per_pert = 2,
                  bilinear_comb = False, 
@@ -447,10 +450,12 @@ class RecoverModel(nn.Module):
         if self.allow_neg_eigval:
             self.bilinear_diag = nn.Parameter(1 / 100 * torch.randn((self.d_embed, self.d_embed)) + 1)
 
-        self.embedding_comb = nn.Sequential(nn.Linear(self.d_embed, self.d_embed),
-                                            nn.Dropout(self.p_dropout),
-                                            nn.ReLU(),
-                                            nn.Linear(self.d_embed, 1))
+        self.embedding_comb = nn.Sequential(
+            nn.Linear(self.d_embed, self.d_embed),
+            nn.Dropout(self.p_dropout),
+            nn.ReLU(),
+            nn.Linear(self.d_embed, 1)
+        )
 
     def forward(self, x, phenos=None):
         x = self.embedding(x)
