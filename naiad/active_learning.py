@@ -964,10 +964,6 @@ class ActiveLearnerReplicates:
                         
                         if idx > 0:
                             for method in methods:
-                                if method == 'overall':
-                                    data_plot = copy.deepcopy(data_stacked)
-                                    data_plot[[(data_stacked['Round'] == idx) & (data_stacked['Method'] == method) & (data_stacked['Sampling'] == 'active')]] \
-                                        = data_plot[[(data_stacked['Round'] == idx) & (data_stacked['Method'] == method) & (data_stacked['Sampling'] == 'active')]]
                                 data_plot = data_stacked[(data_stacked['Round'] == idx) & (data_stacked['Method'] == method) & (data_stacked['Sampling'] == 'active')]
                                 sns.lineplot(data_plot, x='n_preds', y='tpr', errorbar='se', label=method, color=method_colors[method], ax=axs[idx])
 
