@@ -22,8 +22,3 @@ By optimizing experimental resources, NAIAD reduces the need for exhaustive test
 | [Dataset Creation](tutorials/data_preparation_tutorial.ipynb) | Tutorial on how to create customized combinatorial perturbation data|
 | [Model Training](tutorials/naiad_tutorial.ipynb) | Tutorial on how to train NAIAD |
 | [Active Learning](tutorials/active_learning.ipynb) | Tutorial on how to recommend gene pairs for follow-up experiments |
-
-
-### Cite Us
-
-[Qin, J., Wessels, H. H., Fernandez-Granda, C., & Hao, Y. (2024). Active learning for efficient discovery of optimal gene combinations in the combinatorial perturbation space. arXiv preprint arXiv:2411.12010.](https://arxiv.org/abs/2411.12010)
