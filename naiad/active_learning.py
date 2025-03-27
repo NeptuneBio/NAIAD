@@ -72,6 +72,8 @@ class ActiveLearner:
         n_test (int, optional): number of data points to use for testing across all rounds. Must either specify `n_test` or `test_frac`
         method (str): selection method of new points in active learning. Options are 'mean',
             'std', 'mean+std', 'residual', 'residual+std', 'leverage'
+        meanstd_beta (float, optional): beta hyperparameter value to use for mean+std metric. Default: 1.0
+        resstd_beta (float, optional): beta hyperparameter value to use for residual+std metric. Default: 1.0
         batch_size (int): size of batch to use for model training
         method_min (bool): should the selection `method` be minimized for selecting
             new points during active learning?
@@ -88,6 +90,7 @@ class ActiveLearner:
                  n_sample = None, start_frac = None, inc_frac = None,
                  n_test = None, test_frac = None,
                  seed = None,
+                 meanstd_beta = 1, resstd_beta = 1,
                  batch_size = 1024,
                  method = None, method_min = None,
                  early_stop = False):
@@ -100,6 +103,8 @@ class ActiveLearner:
         self.n_epoch = n_epoch
         self.device = device
         self.seed = seed
+        self.meanstd_beta = meanstd_beta
+        self.resstd_beta = resstd_beta
         self.batch_size = batch_size
         self.early_stop = early_stop
 
@@ -267,7 +272,7 @@ class ActiveLearner:
         return data
     
     @staticmethod
-    def _calculate_pred_stats(df, categories):
+    def _calculate_pred_stats(df, categories, meanstd_beta = 1, resstd_beta = 1):
         """
         Given a dataframe `df`, calculate the requested statistics listed in `categories`. 
 
@@ -297,11 +302,11 @@ class ActiveLearner:
             if cat == 'std':
                 result_df.loc[:, 'std'] = df_model_preds.std(axis=1).values
             if cat == 'mean+std':
-                result_df.loc[:, 'mean+std'] = np.abs(df_model_preds.mean(axis=1).values) + df_model_preds.std(axis=1).values
+                result_df.loc[:, 'mean+std'] = np.abs(df_model_preds.mean(axis=1).values) + (meanstd_beta * df_model_preds.std(axis=1).values)
             if cat == 'residual':
                 result_df.loc[:, 'residual'] = np.abs(df.loc[:, 'linear'].values - df_model_preds.mean(axis=1).values) ## TODO: check which columns are chosen in this calculation
             if cat == 'residual+std':
-                result_df.loc[:, 'residual+std'] = df_model_preds.std(axis=1).values + np.abs(df.loc[:, 'linear'].values - df_model_preds.mean(axis=1).values)
+                result_df.loc[:, 'residual+std'] = (resstd_beta * df_model_preds.std(axis=1).values) + np.abs(df.loc[:, 'linear'].values - df_model_preds.mean(axis=1).values)
             
         return result_df
     
@@ -443,7 +448,12 @@ class ActiveLearner:
                 new_cols.append('linear')
 
                 for split in round_data[sampling_type]:
-                    pred_stats = ActiveLearner._calculate_pred_stats(round_data[sampling_type][split][new_cols], categories=['mean', 'std', 'mean+std', 'residual', 'residual+std'])
+                    pred_stats = ActiveLearner._calculate_pred_stats(
+                        round_data[sampling_type][split][new_cols], 
+                        categories=['mean', 'std', 'mean+std', 'residual', 'residual+std'], 
+                        meanstd_beta = self.meanstd_beta, 
+                        resstd_beta = self.resstd_beta
+                    )
                     round_data[sampling_type][split] = pd.concat([round_data[sampling_type][split], pred_stats], axis=1)
                     if split == 'overall':
                         round_data[sampling_type]['overall'] = ActiveLearner._overwrite_data_with_measured(round_data[sampling_type]['overall'], round_data[sampling_type]['train'])
