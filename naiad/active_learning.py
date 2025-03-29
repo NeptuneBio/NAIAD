@@ -408,6 +408,7 @@ class ActiveLearner:
 
             round_args = self.model_args[round]
             round_optimizer_settings = self.model_optimizer_settings[round]
+
             
             for sampling_type in round_models:    
                 logger.info(f'Starting ensemble training for {sampling_type} selection in round {round}...')

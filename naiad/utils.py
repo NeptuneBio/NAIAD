@@ -330,6 +330,15 @@ def RunModelsReplicates(model, n_ensemble, output_type = 'loss', model_args=None
 
 
 def reload_module(module_name):
+    """
+    Reloads a module if it's already imported
+
+    Example:
+    >>> from naiad.utils import reload_module
+    >>> reload_module("naiad")
+    >>> from naiad import ActiveLearner
+    loading ActiveLearner from module naiad
+    """
     try:
         if module_name in sys.modules:
             importlib.reload(sys.modules[module_name])
