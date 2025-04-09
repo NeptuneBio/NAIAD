@@ -364,7 +364,7 @@ class ActiveLearner:
             combined_data (pd.DataFrame): updated dataframe with new column `measured+pred` for the combination of predicted and measured treatments.
         """
 
-        treatment_cols = [col for col in pred_data.columns if 'id' in col]
+        treatment_cols = [col for col in pred_data.columns if re.match('id\d+$', col)]
         matches = pd.merge(left=pred_data, right=measured_data, on=treatment_cols, how='left', indicator=True)
         match_rows = matches[matches['_merge'] == 'both'].index
 
