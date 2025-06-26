@@ -82,23 +82,20 @@ class ActiveLearner:
         early_stop (bool): should an early stopping criteria be used to select the best model during training? If yes, then use the validation set to find
             the best model for early stopping
     """
-    def __init__(
-        self, 
-        n_round, 
-        data,
-        n_ensemble, n_epoch,  
-        device, 
-        model = NAIAD, 
-        model_args = None, model_optimizer_settings = None,
-        n_sample = None, start_frac = None, inc_frac = None,
-        n_test = None, test_frac = None,
-        seed = None,
-        meanstd_beta = 1, resstd_beta = 1,
-        batch_size = 1024,
-        method = None, method_min = None,
-        early_stop = False
-    ):
-        
+    def __init__(self, 
+                 n_round, 
+                 data,
+                 n_ensemble, n_epoch,  
+                 device, 
+                 model = NAIAD, 
+                 model_args = None, model_optimizer_settings = None,
+                 n_sample = None, start_frac = None, inc_frac = None,
+                 n_test = None, test_frac = None,
+                 seed = None,
+                 meanstd_beta = 1, resstd_beta = 1,
+                 batch_size = 1024,
+                 method = None, method_min = None,
+                 early_stop = False):
         self.n_round = n_round
         self.original_data = data
         self.model = model
