@@ -62,7 +62,7 @@ class EmbedPhenoModel(nn.Module):
                  d_out = 1, 
                  p_dropout = 0.1, 
                  model_type = 'both', 
-                 embed_model = 'MLP',
+                 embed_model = 'mlp',
                  train_embed = True, 
                  n_treatment_per_pert = 2):
         super().__init__()
@@ -79,13 +79,13 @@ class EmbedPhenoModel(nn.Module):
         self.embed_model = embed_model
         n_heads = 1
 
-        if self.embed_model not in ['MLP', 'multihead', 'transformer', 'transformer-cls']:
-            raise ValueError('embed_model must be one of the following: "MLP", "multihead", "transformer", "transformer-cls"')
+        if self.embed_model not in ['mlp', 'multihead', 'transformer', 'transformer-cls']:
+            raise ValueError('embed_model must be one of the following: "mlp", "multihead", "transformer", "transformer-cls"')
 
         if self.model_type not in ['pheno', 'embed', 'both']:
             raise ValueError('model_type must be one of the following: "pheno", "embed", "both"')  
 
-        if self.embed_model == 'MLP':
+        if self.embed_model == 'mlp':
             self.embedding = nn.Embedding(self.n_treatments, self.d_embed)
             self.embedding.weight.requires_grad = train_embed
             self.embedding_ffn = nn.Sequential(
@@ -136,7 +136,7 @@ class EmbedPhenoModel(nn.Module):
     def extract_embedding(self, x, comb=True):
         x = self.embedding(x)                    
         if comb:
-            if self.embed_model == 'MLP':
+            if self.embed_model == 'mlp':
                 x = x.reshape(x.shape[0]*self.n_treatment_per_pert, x.shape[2])
                 x = self.embedding_ffn(x)
                 x = x.reshape(-1, self.n_treatment_per_pert, x.shape[1])
@@ -371,7 +371,7 @@ def model_loader(n_treatments,
                  d_out = 1, 
                  p_dropout = 0.1, 
                  model_type = 'both', 
-                 embed_model = 'MLP',
+                 embed_model = 'mlp',
                  train_embed = True, 
                  n_treatments_per_pert = 2,
                  bilinear_comb = False, 
