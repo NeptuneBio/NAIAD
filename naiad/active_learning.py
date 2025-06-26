@@ -74,26 +74,31 @@ class ActiveLearner:
             'std', 'mean+std', 'residual', 'residual+std', 'leverage'
         meanstd_beta (float, optional): beta hyperparameter value to use for mean+std metric. Default: 1.0
         resstd_beta (float, optional): beta hyperparameter value to use for residual+std metric. Default: 1.0
+        method (str): selection method of new points in active learning. Options are 'mean', 'std', 'mean+std', 'residual', 'residual+std', 'leverage'.
+            NOTE: from the NAIAD paper, 'MPE' corresponds to 'mean', and 'UCB' corresponds to 'residual+std'
         batch_size (int): size of batch to use for model training
         method_min (bool): should the selection `method` be minimized for selecting
             new points during active learning?
         early_stop (bool): should an early stopping criteria be used to select the best model during training? If yes, then use the validation set to find
             the best model for early stopping
     """
-    def __init__(self, 
-                 n_round, 
-                 data,
-                 n_ensemble, n_epoch,  
-                 device, 
-                 model = NAIAD, 
-                 model_args = None, model_optimizer_settings = None,
-                 n_sample = None, start_frac = None, inc_frac = None,
-                 n_test = None, test_frac = None,
-                 seed = None,
-                 meanstd_beta = 1, resstd_beta = 1,
-                 batch_size = 1024,
-                 method = None, method_min = None,
-                 early_stop = False):
+    def __init__(
+        self, 
+        n_round, 
+        data,
+        n_ensemble, n_epoch,  
+        device, 
+        model = NAIAD, 
+        model_args = None, model_optimizer_settings = None,
+        n_sample = None, start_frac = None, inc_frac = None,
+        n_test = None, test_frac = None,
+        seed = None,
+        meanstd_beta = 1, resstd_beta = 1,
+        batch_size = 1024,
+        method = None, method_min = None,
+        early_stop = False
+    ):
+        
         self.n_round = n_round
         self.original_data = data
         self.model = model
@@ -184,11 +189,11 @@ class ActiveLearner:
 
     def update_method(self, method, method_min):
         """
-        Set metric for which ensemble statistics are used for training active learning. Options are 'mean', 'std', 'leverage'
+        Set metric for which ensemble statistics are used for training active learning.
 
         Args:
             method (str): selection method of new points in active learning. Options are 'mean', 'std', 'mean+std', 'residual,
-                'residual+std', 'leverage'
+                'residual+std', 'leverage'. NOTE: from the NAIAD paper, 'mpe' corresponds to 'mean', and 'ucb' corresponds to 'residual+std'
             method_min (bool): should the selection `method` be minimized for selecting new points during active learning?        
         """
         if method not in ['leverage', 'mean', 'std', 'mean+std', 'residual', 'residual+std']:
@@ -578,18 +583,6 @@ class ActiveLearner:
                     split_metrics = {'mse': mse, 'tpr': tpr}
                     sampling_metrics[split] = split_metrics
                 
-                """
-                # find mse and tpr for overall data set
-                split_data_join = pd.concat([split_data[split] for split in split_data], axis=0)
-                mse = np.sum((data['mean'] - data['comb_score'])**2) / data.shape[0]
-                tpr = find_top_n_perturbations(df = split_data_join, 
-                                               pred_keys = 'mean',
-                                               pheno_key = 'comb_score', 
-                                               min = 10, max = 200, by = 5, 
-                                               ascending = True,
-                                               plot = False)
-                sampling_metrics['overall'] = {'mse': mse, 'tpr': tpr}
-                """
                 round_metrics[sampling_type] = sampling_metrics
             aggregate_metrics[round] = round_metrics
 
@@ -874,7 +867,7 @@ class ActiveLearnerReplicates:
 
         return None
 
-    def plot_aggregated_results(self, metrics, splits, methods, return_value=False, max_round=None, orientation = 'vertical', max_tpr=None, label_map=None):
+    def plot_aggregated_results(self, metrics, splits, methods, return_value=False, max_round=None, orientation='vertical', max_tpr=None, label_map=None):
         """
         Generate plots for requested `metrics` from data trained using `methods` in each of the requested data 
         `splits` collected across replicates.

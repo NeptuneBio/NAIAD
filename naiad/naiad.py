@@ -54,26 +54,30 @@ class NAIAD:
     """
     
     # map number of times each treatment is seen to embedding size for model
-    n_treatment_seen = {0: 2,
-                        2: 2,
-                        4: 4,
-                        10: 16,
-                        20: 16,
-                        30: 32,
-                        40: 64,
-                        60: 64,
-                        80: 128,
-                        100: 128}
+    n_treatment_seen = {
+        0: 2,
+        2: 2,
+        4: 4,
+        10: 16,
+        20: 16,
+        30: 32,
+        40: 64,
+        60: 64,
+        80: 128,
+        100: 128
+    }
     
-    def __init__(self, 
-                 data,
-                 n_train,
-                 n_test,
-                 n_val = None,
-                 batch_size = 1024, 
-                 add_training_rank = False,
-                 ranking_bins = 10,
-                 seed = None):
+    def __init__(
+        self, 
+        data,
+        n_train,
+        n_test,
+        n_val = None,
+        batch_size = 1024, 
+        add_training_rank = False,
+        ranking_bins = 10,
+        seed = None
+    ):
                  
         self.original_data = data
         self.seed = seed
@@ -467,8 +471,6 @@ class NAIAD:
         """
         Run linear regression on the embeddings to predict the targets. Store the linear regression model in `self.lr_model`.
         """
-       # model.fit(naiad_data[['g1_score', 'g2_score']], naiad_data['comb_score'])
-
         self.lr_model = LinearRegression()
         self.lr_model.fit(self.data['train'][['id1_score', 'id2_score']], self.data['train']['comb_score'])
         for split in self.data:
